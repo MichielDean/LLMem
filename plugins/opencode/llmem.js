@@ -59,10 +59,6 @@ const LLMemPlugin = async function ({ client, $, directory, worktree }) {
   return {
     event: async function ({ event }) {
       if (event.type === "session.created") {
-        const sessionId =
-          event.properties &&
-          (event.properties.sessionId || event.properties.id);
-
         const stats = run(["stats"]);
         if (stats) {
           log(client, "info", STATS_TAG + "\n" + stats);

@@ -32,8 +32,7 @@ const EXPECTED_TOOLS = [
   'llmem-add',
   'llmem-context',
   'llmem-invalidate',
-  'llmem-stats',
-  'llmem-hook'
+  'llmem-stats'
 ];
 const FORBIDDEN_PATTERNS = [
   /\blogmem\b/,
