@@ -14,7 +14,7 @@ export default tool({
     "Add a new memory to llmem. Returns the memory ID and type on success. Requires no prior initialization — the CLI handles store creation.",
   args: {
     type: tool.schema.string().describe(
-      "Memory type (fact, decision, preference, event, project_state, procedure, conversation, self_assessment)"
+      "Memory type (fact, decision, preference, event, project_state, procedure, conversation)"
     ),
     content: tool.schema.string().describe(
       "Memory content text"

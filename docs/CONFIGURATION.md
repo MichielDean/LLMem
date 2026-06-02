@@ -14,8 +14,6 @@ LLMem looks for configuration at `~/.config/llmem/config.yaml`. If this file doe
 | Database | `~/.config/llmem/memory.db` | `config.yaml: memory.db` |
 | Config file | `~/.config/llmem/config.yaml` | — |
 | Dream diary | `~/.config/llmem/dream-diary.md` | `config.yaml: dream.diary_path` |
-| Proposed changes | `~/.config/llmem/proposed-changes.md` | `config.yaml: dream.proposed_changes_path` |
-| Skill files | `~/.config/llmem/skills/` | `config.yaml: skill_patch.dir` |
 
 **Backward compatibility:** If `~/.lobsterdog/` exists and `~/.config/llmem/` doesn't, LLMem will use the legacy path. Call `migrate_from_lobsterdog()` to copy data to the new location.
 
@@ -32,7 +30,6 @@ memory:
   context_budget: 4000
   auto_extract: true
   max_file_size: 10485760      # 10MB
-  call_model_timeout: 5m       # Timeout for LLM calls in introspect/learn (Go duration: "5m", "120s")
 
 dream:
   enabled: true                # (Python only — not wired in Go CLI dream command)
@@ -46,17 +43,8 @@ dream:
   boost_amount: 0.05
   diary_path: null             # Auto-resolved from GetDreamDiaryPath()
   report_path: null            # Auto-resolved from GetDreamReportPath()
-  proposed_changes_path: null  # Auto-resolved from GetProposedChangesPath()
-  behavioral_threshold: 3
-  behavioral_lookback_days: 30
-  ollama_url: http://localhost:11434  # Ollama API URL for LLM-generated behavioral insights
-  model: glm-5.1:cloud                # Model for behavioral insight generation
-  model_timeout: 5m                  # Timeout for LLM calls during REM behavioral insight generation (Go duration)
   auto_link_threshold: 0.85    # Cosine similarity threshold for auto-linking related memories
   stale_procedure_days: 30     # Days after which an unaccessed procedure memory decays at 2x rate
-
-skill_patch:
-  dir: null                    # Root directory for skill files (default: ~/.config/llmem/skills/)
 
 opencode:
   db_path: ~/.local/share/opencode/opencode.db
@@ -83,9 +71,8 @@ LLMem uses a session adapter to read conversation transcripts for memory extract
 
 **Key behavior differences:**
 
-- `llmem context` (session.created) — works with all adapters, including `none`. Injects relevant memories without needing session transcripts.
-- `llmem hook idle` (session.idle) — requires transcript access. Returns `no_transcript` when no adapter is configured or no share file exists.
-- `llmem context --compacting` (session.compacting) — works with all adapters. Reads from MemoryStore, not the session DB.
+- `llmem search` (session.created) — works with all adapters, including `none`. Searches relevant memories without needing session transcripts.
+- `llmem search --limit 15` (session.compacting) — works with all adapters. Reads from MemoryStore, not the session DB.
 
 **OpenCode adapter specifics:** The adapter reads from the OpenCode SQLite database in read-only mode. When a session has `time_compacting` set (indicating context compaction), `ReadTranscript` returns only messages after the compaction time (recent context), not the full history. The `Close()` method on the adapter is idempotent and should be called when done (typically via `defer`).
 

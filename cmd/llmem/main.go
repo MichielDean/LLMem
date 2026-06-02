@@ -4,22 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/MichielDean/LLMem/internal/config"
 	"github.com/MichielDean/LLMem/internal/dream"
 	"github.com/MichielDean/LLMem/internal/embed"
 	"github.com/MichielDean/LLMem/internal/extract"
-	"github.com/MichielDean/LLMem/internal/introspect"
-	"github.com/MichielDean/LLMem/internal/ollama"
 	"github.com/MichielDean/LLMem/internal/paths"
 	"github.com/MichielDean/LLMem/internal/store"
-	"github.com/MichielDean/LLMem/internal/taxonomy"
 	"github.com/spf13/cobra"
 )
 
@@ -52,9 +47,6 @@ func main() {
 		initCmd(),
 		metricsCmd(),
 		dreamCmd(),
-		introspectCmd(),
-		learnCmd(),
-		trackReviewCmd(),
 
 		backfillEmbeddingsCmd(),
 	)
@@ -117,18 +109,6 @@ func openEmbeddingEngine() *embed.EmbeddingEngine {
 		return nil
 	}
 	return engine
-}
-
-// openOllamaClient creates an OllamaClient for session hook introspection.
-// Returns nil on failure — the coordinator gracefully handles a nil client
-// by falling back to degraded introspection in OnEnding (plain-text summary, no LLM).
-func openOllamaClient() *ollama.OllamaClient {
-	client, err := ollama.NewOllamaClient(ollama.OllamaClientConfig{})
-	if err != nil {
-		slog.Debug("llmem: failed to create Ollama client, falling back to degraded introspection", "error", err)
-		return nil
-	}
-	return client
 }
 
 func addCmd() *cobra.Command {
@@ -709,13 +689,6 @@ func dreamCmd() *cobra.Command {
 			dreamerCfg := cfg.DreamerConfig()
 			dreamerCfg.Store = ms
 
-			// Wire SkillPatcher for direct skill patching after dream
-			sp, spErr := cfg.NewSkillPatcher(ms)
-			if spErr != nil {
-				slog.Warn("llmem: dream: could not create skill patcher, skipping patch validation", "error", spErr)
-			}
-			dreamerCfg.SkillPatcher = sp
-
 			d, err := dream.NewDreamer(dreamerCfg)
 			if err != nil {
 				return err
@@ -756,274 +729,6 @@ func dreamCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRunVal, "dry-run", false, "Dry run only (default: true). Shorthand for omitting --apply.")
 	cmd.Flags().StringVar(&phaseVal, "phase", "", "Run specific phase: light, deep, rem (default: all)")
 	cmd.Flags().StringVar(&reportVal, "report", "", "Generate HTML dream report at this path")
-	return cmd
-}
-
-func introspectCmd() *cobra.Command {
-	var (
-		noLLM      bool
-		timeoutVal string
-	)
-	cmd := &cobra.Command{
-		Use:   "introspect [description]",
-		Short: "Analyze a failure and store a self_assessment memory",
-		Long: "Analyze a failure and store a self_assessment memory.\n" +
-			"The description is a free-form summary of what went wrong.\n" +
-			"The LLM infers category, context, and proposed fix from your description.\n" +
-			"When the LLM is unavailable, the description is stored directly.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			whatHappened := args[0]
-
-			var timeout time.Duration
-			if timeoutVal != "" {
-				parsed, err := time.ParseDuration(timeoutVal)
-				if err != nil {
-					return fmt.Errorf("llmem: introspect: invalid --timeout duration %q: %w", timeoutVal, err)
-				}
-				timeout = parsed
-			} else {
-				cfg, cfgErr := loadConfig()
-				if cfgErr != nil {
-					slog.Debug("llmem: introspect: could not load config for timeout default, using 5m", "error", cfgErr)
-				} else {
-					timeout = cfg.CallModelTimeoutDuration()
-				}
-			}
-
-			ms, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer ms.Close()
-
-			result, err := introspect.IntrospectFailure(context.Background(), ms, introspect.IntrospectFailureParams{
-				WhatHappened: whatHappened,
-				NoLLM:        noLLM,
-				Timeout:      timeout,
-			})
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("Stored self_assessment: %s\n", result.MemoryID)
-
-			if result.ProposedUpdate != "" && result.Category != "" {
-				patchSkillAfterIntrospect(ms, result.Category, result.ProposedUpdate)
-			}
-
-			if noLLM {
-				fmt.Fprintln(os.Stderr, "WARNING: LLM enrichment disabled (--no-llm flag)")
-				return nil
-			}
-
-			if result.LLMStatus == introspect.Skipped {
-				fmt.Fprintln(os.Stderr, "WARNING: LLM enrichment skipped — stored raw fields (Ollama unavailable)")
-			}
-
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&noLLM, "no-llm", false, "Skip LLM enrichment, store raw fields only (exit code 0)")
-	cmd.Flags().StringVar(&timeoutVal, "timeout", "", "LLM call timeout (e.g. \"120s\", \"2m\"). Must be >= 10s.")
-	return cmd
-}
-
-func learnCmd() *cobra.Command {
-	var (
-		noLLM      bool
-		timeoutVal string
-	)
-	cmd := &cobra.Command{
-		Use:   "learn [wrong] --right [correct]",
-		Short: "Learn a lesson from a wrong→right correction (alias for introspect)",
-		Long: "Learn a lesson from a wrong→right correction. " +
-			"Delegates to introspect with a combined description. " +
-			"Consider using 'introspect' directly — it handles both analysis and correction.",
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			wrongVal := args[0]
-
-			var timeout time.Duration
-			if timeoutVal != "" {
-				parsed, err := time.ParseDuration(timeoutVal)
-				if err != nil {
-					return fmt.Errorf("llmem: learn: invalid --timeout duration %q: %w", timeoutVal, err)
-				}
-				timeout = parsed
-			} else {
-				cfg, cfgErr := loadConfig()
-				if cfgErr != nil {
-					slog.Debug("llmem: learn: could not load config for timeout default, using 5m", "error", cfgErr)
-				} else {
-					timeout = cfg.CallModelTimeoutDuration()
-				}
-			}
-
-			ms, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer ms.Close()
-
-			rightVal, _ := cmd.Flags().GetString("right")
-			contextVal, _ := cmd.Flags().GetString("context")
-
-			// Build a combined description for introspect
-			description := "WRONG: " + wrongVal
-			if rightVal != "" {
-				description += "\nRIGHT: " + rightVal
-			}
-			if contextVal != "" {
-				description += "\nContext: " + contextVal
-			}
-
-			result, err := introspect.IntrospectFailure(context.Background(), ms, introspect.IntrospectFailureParams{
-				WhatHappened: description,
-				NoLLM:        noLLM,
-				Timeout:      timeout,
-			})
-			if err != nil {
-				return err
-			}
-
-			fmt.Printf("Stored self_assessment: %s\n", result.MemoryID)
-
-			// Patch skill file if ProposedUpdate and Category are available
-			if result.ProposedUpdate != "" && result.Category != "" {
-				patchSkillAfterIntrospect(ms, result.Category, result.ProposedUpdate)
-			}
-
-			if noLLM {
-				fmt.Fprintln(os.Stderr, "WARNING: LLM enrichment disabled (--no-llm flag)")
-				return nil
-			}
-
-			if result.LLMStatus == introspect.Skipped {
-				fmt.Fprintln(os.Stderr, "WARNING: LLM enrichment skipped — stored raw fields (Ollama unavailable)")
-				ms.Close()
-				os.Exit(2)
-			}
-
-			return nil
-		},
-	}
-	cmd.Flags().String("right", "", "What is correct (the fix)")
-	cmd.Flags().String("context", "", "Context")
-	cmd.Flags().BoolVar(&noLLM, "no-llm", false, "Skip LLM enrichment, store raw fields only (exit code 0)")
-	cmd.Flags().StringVar(&timeoutVal, "timeout", "", "LLM call timeout (e.g. \"120s\", \"2m\"). Must be >= 10s.")
-	return cmd
-}
-
-func trackReviewCmd() *cobra.Command {
-	var (
-		singleVal   bool
-		batchVal    bool
-		cleanVal    bool
-		findingsVal string
-	)
-	cmd := &cobra.Command{
-		Use:   "track-review",
-		Short: "Persist code review findings as self_assessment memories",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ms, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer ms.Close()
-
-			if cleanVal {
-				// Invalidate all self_assessment memories with source="track-review"
-				// This is a bulk invalidation — fetch and invalidate each
-				memories, err := ms.Search(context.Background(), store.SearchParams{
-					Type:      "self_assessment",
-					ValidOnly: true,
-					Limit:    10000,
-				})
-				if err != nil {
-					return err
-				}
-				count := 0
-				for _, m := range memories {
-					if m.Source == "track-review" {
-						ok, err := ms.Invalidate(context.Background(), m.ID, "track-review clean")
-						if err != nil {
-							return fmt.Errorf("llmem: track-review: invalidate %s: %w", m.ID, err)
-						}
-						if ok {
-							count++
-						}
-					}
-				}
-				fmt.Printf("Invalidated %d track-review memories\n", count)
-			}
-
-			if singleVal || batchVal {
-				var input []byte
-				if findingsVal != "" {
-					resolvedFindings, rerr := filepath.Abs(findingsVal)
-					if rerr != nil {
-						return fmt.Errorf("llmem: track-review: resolve findings path: %w", rerr)
-					}
-					if paths.IsBlockedPath(resolvedFindings) {
-						return fmt.Errorf("llmem: track-review: findings path targets a blocked system directory: %s", resolvedFindings)
-					}
-					input, err = os.ReadFile(resolvedFindings)
-					if err != nil {
-						return fmt.Errorf("llmem: track-review: read findings: %w", err)
-					}
-				} else {
-					stat, _ := os.Stdin.Stat()
-					if stat.Mode()&os.ModeCharDevice != 0 {
-						return fmt.Errorf("llmem: track-review: provide --findings or pipe input")
-					}
-					input, err = io.ReadAll(os.Stdin)
-					if err != nil {
-						return fmt.Errorf("llmem: track-review: read stdin: %w", err)
-					}
-				}
-
-				lines := strings.Split(strings.TrimSpace(string(input)), "\n")
-				count := 0
-				for _, line := range lines {
-					line = strings.TrimSpace(line)
-					if line == "" {
-						continue
-					}
-					// Parse "Category: value" lines
-					parsed := taxonomy.ParseSelfAssessment(line)
-					category := parsed["Category"]
-					if category == "" {
-						category = "REVIEW_PASSED"
-					}
-					if _, ok := taxonomy.ErrorTaxonomy[category]; !ok {
-						slog.Warn("llmem: track-review: unknown category, proceeding anyway", "category", category)
-					}
-
-					id, err := ms.Add(context.Background(), store.AddParams{
-						Type:       "self_assessment",
-						Content:    line,
-						Source:     "track-review",
-						Confidence: 0.9,
-						Metadata:   map[string]any{"category": category, "source": "track-review"},
-					})
-					if err != nil {
-						slog.Warn("llmem: track-review: failed to store finding", "error", err)
-						continue
-					}
-					count++
-					_ = id
-				}
-				fmt.Printf("Stored %d track-review findings\n", count)
-			}
-
-			return nil
-		},
-	}
-	cmd.Flags().BoolVar(&singleVal, "single", false, "Store a single finding")
-	cmd.Flags().BoolVar(&batchVal, "batch", false, "Store multiple findings")
-	cmd.Flags().BoolVar(&cleanVal, "clean", false, "Invalidate all existing track-review memories")
-	cmd.Flags().StringVar(&findingsVal, "findings", "", "Path to findings file (or stdin)")
 	return cmd
 }
 
@@ -1119,43 +824,4 @@ func defaultIfEmpty(val, defaultVal string) string {
 		return defaultVal
 	}
 	return val
-}
-
-// patchSkillAfterIntrospect attempts to patch the relevant skill file after
-// introspection produces a self-assessment with a proposed update.
-// Patching failure is degraded behavior, not a fatal error — the memory was still stored.
-func patchSkillAfterIntrospect(ms *store.MemoryStore, category, proposedUpdate string) {
-	cfg, cfgErr := loadConfig()
-	if cfgErr != nil {
-		slog.Warn("llmem: introspect: could not load config for skill patching", "error", cfgErr)
-		return
-	}
-
-	// Category "REVIEW_PASSED" needs no patch
-	if category == "REVIEW_PASSED" {
-		slog.Debug("llmem: introspect: REVIEW_PASSED needs no skill patch")
-		return
-	}
-
-	sp, spErr := cfg.NewSkillPatcher(ms)
-	if spErr != nil {
-		slog.Warn("llmem: introspect: could not create skill patcher", "error", spErr)
-		return
-	}
-	if sp == nil {
-		slog.Debug("llmem: introspect: skill patcher not available, skipping patch")
-		return
-	}
-
-	// Get the category description from taxonomy for context
-	categoryDescription := category
-	if desc, ok := taxonomy.ErrorTaxonomy[category]; ok {
-		categoryDescription = desc
-	}
-
-	if err := sp.Patch(context.Background(), category, proposedUpdate, categoryDescription); err != nil {
-		slog.Warn("llmem: introspect: skill patching failed (memory was still stored)", "category", category, "error", err)
-	} else {
-		slog.Info("llmem: introspect: patched skill file", "category", category)
-	}
 }

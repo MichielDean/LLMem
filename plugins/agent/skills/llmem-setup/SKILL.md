@@ -122,8 +122,7 @@ Memory is working memory, not a startup ritual. Search before assuming.
 
 **Session start — MANDATORY:**
 1. `llmem stats` — check memory health
-2. `llmem search "behavioral" --type self_assessment --limit 5` — surface recurring error patterns
-3. `llmem search "proposed" --type procedure --limit 5` — check for proposed procedural memories
+2. `llmem search "topic" --limit 5` — search for relevant memories
 
 **Mid-session search triggers — search whenever:**
 - Looking up how something works
@@ -166,9 +165,8 @@ OpenCode agents need the `opencode-llmem` plugin (installed in Step 1) and the l
 ```
 
 The plugin handles session hooks automatically:
-- `session.created` → `llmem context --session-id <session_id>` (injects relevant memories)
-- `session.idle` → `llmem hook --type idle --session-id <session_id>` (extracts new memories)
-- `session.compacting` → `llmem context --compacting --session-id <session_id>` (preserves key memories)
+- `session.created` → `llmem stats` + `llmem search` (injects relevant memories)
+- `session.compacting` → `llmem search` (preserves key memories)
 
 Skills are installed to `~/.agents/skills/`. OpenCode discovers them automatically.
 
@@ -198,7 +196,7 @@ ls ~/.agents/skills/llmem-setup/SKILL.md
 ls ~/.agents/plugins/llmem/
 
 # Session hooks work
-llmem context --session-id "test-session-id"
+llmem stats && llmem search "test" --limit 5
 ```
 
 ### Step 6: Dream Timer (Optional)

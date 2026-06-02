@@ -27,8 +27,7 @@ final_score = rrf_score * (1 - blend) + weighted_signal * blend
 |------|----------|-|------|----------|
 | decision | 1.2 | | fact | 1.0 |
 | preference | 1.1 | | project_state | 1.0 |
-| procedure | 1.1 | | self_assessment | 1.0 |
-| | | | event | 0.9 |
+| procedure | 1.1 | | event | 0.9 |
 | | | | conversation | 0.7 |
 
 Search results include both `_rrf_score` (raw RRF fusion score) and `_rerank_score` (blended final score). Results are sorted by `_rerank_score` descending, with ties broken by ascending memory ID. Search operations (`Retriever.search()` and `Retriever.hybrid_search()`) automatically track access — each returned result's `access_count` and `accessed_at` are updated (best-effort), keeping the recency and access frequency signals current. This Hebbian reinforcement is on by default (`track_access=True`); pass `track_access=False` to skip access tracking (useful for analytics queries that shouldn't inflate counts).
@@ -112,7 +111,7 @@ weighted := retriever.ComputeWeightedSignal(signals)
 priorities := retriever.DefaultTypePriority()
 ```
 
-The type priority weights are identical to Python (`decision: 1.2`, `preference: 1.1`, `procedure: 1.1`, `fact: 1.0`, `project_state: 1.0`, `self_assessment: 1.0`, `event: 0.9`). `NewRetriever` makes a defensive copy of the input map to prevent caller mutation.
+The type priority weights are identical to Python (`decision: 1.2`, `preference: 1.1`, `procedure: 1.1`, `fact: 1.0`, `project_state: 1.0`, `event: 0.9`, `conversation: 0.7`). `NewRetriever` makes a defensive copy of the input map to prevent caller mutation.
 
 ### Access Tracking
 

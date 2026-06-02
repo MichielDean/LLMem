@@ -8,12 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/MichielDean/LLMem/internal/dream"
 	"github.com/MichielDean/LLMem/internal/paths"
-	"github.com/MichielDean/LLMem/internal/skillpatch"
-	"github.com/MichielDean/LLMem/internal/store"
 	"github.com/MichielDean/LLMem/internal/urlvalidate"
 	"gopkg.in/yaml.v3"
 )
@@ -22,57 +19,39 @@ import (
 // Only fields that are wired through to DreamerConfig are included.
 // Removed dead fields: MinScore, MinRecallCount, MinUniqueQueries,
 // BoostOnPromote, MergeModel, CalibrationEnabled,
-// CalibrationLookbackDays, Enabled, Schedule, SkillPatchDir — these were defined in
+// CalibrationLookbackDays, Enabled, Schedule — these were defined in
 // config but never read by any method, creating a contract violation.
 // Enabled and Schedule control systemd timer behaviour, not dream
 // algorithm parameters; they are handled by internal/systemd directly.
-// SkillPatchDir was superseded by SkillPatchConfig.Dir (Config.SkillPatch.Dir).
 type DreamConfig struct {
-	SimilarityThreshold    float64 `yaml:"similarity_threshold"`
-	DecayRate              float64 `yaml:"decay_rate"`
-	DecayIntervalDays      int     `yaml:"decay_interval_days"`
-	DecayFloor             float64 `yaml:"decay_floor"`
-	ConfidenceFloor        float64 `yaml:"confidence_floor"`
-	BoostThreshold         int     `yaml:"boost_threshold"`
-	BoostAmount            float64 `yaml:"boost_amount"`
-	DiaryPath              string  `yaml:"diary_path"`
-	ReportPath             string  `yaml:"report_path"`
-	BehavioralThreshold    int     `yaml:"behavioral_threshold"`
-	BehavioralLookbackDays int     `yaml:"behavioral_lookback_days"`
-	AutoLinkThreshold      float64 `yaml:"auto_link_threshold"`
-	StaleProcedureDays     int     `yaml:"stale_procedure_days"`
-	OllamaURL              string  `yaml:"ollama_url"`
-	Model                  string  `yaml:"model"`
-	// ModelTimeout is the timeout for each LLM call during REM behavioral insight generation.
-	// Parsed as a Go duration string (e.g. "5m", "120s"). Defaults to "5m".
-	ModelTimeout        string `yaml:"model_timeout"`
-}
-
-// SkillPatchConfig holds skill patch settings.
-type SkillPatchConfig struct {
-	// Dir is the root directory for skill files. Defaults to paths.GetSkillDir() if empty.
-	Dir string `yaml:"dir"`
+	SimilarityThreshold float64 `yaml:"similarity_threshold"`
+	DecayRate            float64 `yaml:"decay_rate"`
+	DecayIntervalDays    int     `yaml:"decay_interval_days"`
+	DecayFloor           float64 `yaml:"decay_floor"`
+	ConfidenceFloor      float64 `yaml:"confidence_floor"`
+	BoostThreshold       int     `yaml:"boost_threshold"`
+	BoostAmount          float64 `yaml:"boost_amount"`
+	DiaryPath            string  `yaml:"diary_path"`
+	ReportPath           string  `yaml:"report_path"`
+	AutoLinkThreshold    float64 `yaml:"auto_link_threshold"`
+	StaleProcedureDays   int     `yaml:"stale_procedure_days"`
 }
 
 // Config holds the full LLMem configuration.
 type Config struct {
-	Memory     MemoryConfig     `yaml:"memory"`
-	Dream      DreamConfig      `yaml:"dream"`
-	SkillPatch SkillPatchConfig `yaml:"skill_patch"`
+	Memory MemoryConfig `yaml:"memory"`
+	Dream  DreamConfig   `yaml:"dream"`
 }
 
 // MemoryConfig holds memory store settings.
 type MemoryConfig struct {
-	DBPath            string `yaml:"db"`
-	OllamaURL         string `yaml:"ollama_url"`
-	EmbedModel        string `yaml:"embed_model"`
-	ExtractModel      string `yaml:"extract_model"`
-	ContextBudget     int    `yaml:"context_budget"`
-	AutoExtract       bool   `yaml:"auto_extract"`
-	MaxFileSize       int64  `yaml:"max_file_size"`
-	// CallModelTimeout is the timeout for LLM calls in introspect/learn.
-	// Parsed as a Go duration string (e.g. "5m", "120s"). Defaults to "5m".
-	CallModelTimeout string `yaml:"call_model_timeout"`
+	DBPath        string `yaml:"db"`
+	OllamaURL     string `yaml:"ollama_url"`
+	EmbedModel    string `yaml:"embed_model"`
+	ExtractModel  string `yaml:"extract_model"`
+	ContextBudget int    `yaml:"context_budget"`
+	AutoExtract   bool   `yaml:"auto_extract"`
+	MaxFileSize   int64  `yaml:"max_file_size"`
 }
 
 // fmtErr wraps an error with the "llmem: config:" domain prefix.
@@ -84,33 +63,26 @@ func fmtErr(format string, args ...any) error {
 func DefaultConfig() Config {
 	return Config{
 		Memory: MemoryConfig{
-			DBPath:             paths.GetDBPath(),
-			OllamaURL:          "http://localhost:11434",
-			EmbedModel:         "nomic-embed-text",
-			ExtractModel:       "glm-5.1:cloud",
-			ContextBudget:      4000,
-			AutoExtract:        true,
-			MaxFileSize:        10 * 1024 * 1024,
-			CallModelTimeout:   "5m",
+			DBPath:        paths.GetDBPath(),
+			OllamaURL:     "http://localhost:11434",
+			EmbedModel:    "nomic-embed-text",
+			ExtractModel:  "glm-5.1:cloud",
+			ContextBudget: 4000,
+			AutoExtract:   true,
+			MaxFileSize:   10 * 1024 * 1024,
 		},
 		Dream: DreamConfig{
-			SimilarityThreshold:    0.92,
-			DecayRate:              0.05,
-			DecayIntervalDays:      30,
-			DecayFloor:             0.3,
-			ConfidenceFloor:         0.3,
-			BoostThreshold:         5,
-			BoostAmount:             0.05,
-			DiaryPath:              paths.GetDreamDiaryPath(),
-			ReportPath:             paths.GetDreamReportPath(),
-			BehavioralThreshold:    3,
-			BehavioralLookbackDays: 30,
-			AutoLinkThreshold:      0.85,
-			StaleProcedureDays:     30,
-			ModelTimeout:           "5m",
-		},
-		SkillPatch: SkillPatchConfig{
-			Dir: paths.GetSkillDir(),
+			SimilarityThreshold: 0.92,
+			DecayRate:           0.05,
+			DecayIntervalDays:   30,
+			DecayFloor:          0.3,
+			ConfidenceFloor:     0.3,
+			BoostThreshold:      5,
+			BoostAmount:          0.05,
+			DiaryPath:            paths.GetDreamDiaryPath(),
+			ReportPath:           paths.GetDreamReportPath(),
+			AutoLinkThreshold:    0.85,
+			StaleProcedureDays:  30,
 		},
 	}
 }
@@ -167,72 +139,22 @@ func (c *Config) OllamaURL() (string, error) {
 	return validated, nil
 }
 
-// CallModelTimeoutDuration parses the CallModelTimeout config value as a time.Duration.
-// Returns the default of 5 minutes if the value is empty or invalid, logging a warning.
-func (c *Config) CallModelTimeoutDuration() time.Duration {
-	if c.Memory.CallModelTimeout == "" {
-		return 5 * time.Minute
-	}
-	parsed, err := time.ParseDuration(c.Memory.CallModelTimeout)
-	if err != nil {
-		slog.Warn("llmem: config: invalid call_model_timeout, using default 5m", "value", c.Memory.CallModelTimeout, "error", err)
-		return 5 * time.Minute
-	}
-	return parsed
-}
-
 // DreamerConfig returns a dream.DreamerConfig populated from the config.
 // Maps DreamConfig fields to their corresponding DreamerConfig fields.
 // Store must be set by the caller before passing to dream.NewDreamer.
-// If OllamaURL is configured, it is passed as BaseURL so Dreamer can attempt
-// to create an OllamaClient. If OllamaClient creation fails inside
-// dream.NewDreamer, behavioral insights fall back to count-based summaries.
 func (c *Config) DreamerConfig() dream.DreamerConfig {
-	ollamaURL := c.Dream.OllamaURL
-	if ollamaURL == "" {
-		ollamaURL = c.Memory.OllamaURL
-	}
-	if ollamaURL == "" {
-		ollamaURL = "http://localhost:11434"
-	}
-
-	model := c.Dream.Model
-	if model == "" {
-		model = c.Memory.ExtractModel
-	}
-	if model == "" {
-		model = "glm-5.1:cloud"
-	}
-
-	// Parse dream model timeout from config
-	var modelTimeout time.Duration
-	if c.Dream.ModelTimeout != "" {
-		parsed, err := time.ParseDuration(c.Dream.ModelTimeout)
-		if err != nil {
-			slog.Warn("llmem: config: invalid dream model_timeout, using default 5m", "value", c.Dream.ModelTimeout, "error", err)
-			modelTimeout = 5 * time.Minute
-		} else {
-			modelTimeout = parsed
-		}
-	}
-
 	return dream.DreamerConfig{
-		SimilarityThreshold:    c.Dream.SimilarityThreshold,
-		DecayRate:              c.Dream.DecayRate,
-		DecayIntervalDays:      c.Dream.DecayIntervalDays,
-		DecayFloor:             c.Dream.DecayFloor,
-		ConfidenceFloor:         c.Dream.ConfidenceFloor,
-		BoostThreshold:         c.Dream.BoostThreshold,
-		BoostAmount:            c.Dream.BoostAmount,
-		AutoLinkThreshold:      c.Dream.AutoLinkThreshold,
-		BehavioralThreshold:    c.Dream.BehavioralThreshold,
-		BehavioralLookbackDays: c.Dream.BehavioralLookbackDays,
-		StaleProcedureDays:     c.Dream.StaleProcedureDays,
-		DiaryPath:              c.Dream.DiaryPath,
-		ReportPath:             c.Dream.ReportPath,
-		BaseURL:                ollamaURL,
-		Model:                  model,
-		ModelTimeout:           modelTimeout,
+		SimilarityThreshold:  c.Dream.SimilarityThreshold,
+		DecayRate:            c.Dream.DecayRate,
+		DecayIntervalDays:    c.Dream.DecayIntervalDays,
+		DecayFloor:           c.Dream.DecayFloor,
+		ConfidenceFloor:      c.Dream.ConfidenceFloor,
+		BoostThreshold:       c.Dream.BoostThreshold,
+		BoostAmount:          c.Dream.BoostAmount,
+		AutoLinkThreshold:    c.Dream.AutoLinkThreshold,
+		StaleProcedureDays:  c.Dream.StaleProcedureDays,
+		DiaryPath:            c.Dream.DiaryPath,
+		ReportPath:           c.Dream.ReportPath,
 	}
 }
 
@@ -241,27 +163,6 @@ func (c *Config) DreamerConfig() dream.DreamerConfig {
 // wired to the actual Dreamer implementation.
 func (c *Config) DreamConfigResolved() DreamConfig {
 	return c.Dream
-}
-
-// NewSkillPatcher creates a SkillPatcher using the SkillPatch config.
-// The store parameter is no longer required by SkillPatcher but is retained
-// for callers that check store availability before deciding to patch skills.
-// Returns nil without error if ms is nil (graceful degradation for callers).
-func (c *Config) NewSkillPatcher(ms *store.MemoryStore) (*skillpatch.SkillPatcher, error) {
-	if ms == nil {
-		// Graceful degradation: callers use nil check to skip patching
-		// when no store is available (e.g., dream cmd without a database).
-		return nil, nil
-	}
-
-	skillDir := c.SkillPatch.Dir
-	if skillDir == "" {
-		skillDir = paths.GetSkillDir()
-	}
-
-	return skillpatch.NewSkillPatcher(skillpatch.SkillPatchConfig{
-		SkillDir: skillDir,
-	})
 }
 
 // WriteConfigYAML writes config as YAML to the given path with 0600 permissions.

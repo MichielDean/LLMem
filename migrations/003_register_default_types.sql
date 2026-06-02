@@ -11,7 +11,6 @@ INSERT OR IGNORE INTO "memory_types" ("name") VALUES ('event');
 INSERT OR IGNORE INTO "memory_types" ("name") VALUES ('project_state');
 INSERT OR IGNORE INTO "memory_types" ("name") VALUES ('procedure');
 INSERT OR IGNORE INTO "memory_types" ("name") VALUES ('conversation');
-INSERT OR IGNORE INTO "memory_types" ("name") VALUES ('self_assessment');
 
 -- +goose Down
-DELETE FROM "memory_types" WHERE "name" IN ('fact', 'decision', 'preference', 'event', 'project_state', 'procedure', 'conversation', 'self_assessment');
+DELETE FROM "memory_types" WHERE "name" IN ('fact', 'decision', 'preference', 'event', 'project_state', 'procedure', 'conversation');

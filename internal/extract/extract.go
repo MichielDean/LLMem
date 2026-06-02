@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/MichielDean/LLMem/internal/ollama"
-	"github.com/MichielDean/LLMem/internal/taxonomy"
 )
 
 const (
@@ -21,23 +20,17 @@ const (
 )
 
 // extractionPrompt is the system prompt for memory extraction.
-var extractionPrompt = buildExtractionPrompt()
-
-func buildExtractionPrompt() string {
-	categoryChoices := taxonomy.IntrospectCategoryChoices()
-	return fmt.Sprintf(`You are a memory extraction system. Extract key memories from the text below.
+var extractionPrompt = `You are a memory extraction system. Extract key memories from the text below.
 
 Return a JSON array of objects with these fields:
-- type: one of "fact", "decision", "preference", "event", "project_state", "procedure", "self_assessment"
+- type: one of "fact", "decision", "preference", "event", "project_state", "procedure", "conversation"
 - content: a clear, specific statement (not vague)
 - confidence: 0.0 to 1.0 (how certain this is a lasting memory)
-- category: (self_assessment only) one of: %s
 
 If no memories are worth extracting, return an empty array [].
 
 Text:
-`, categoryChoices)
-}
+`
 
 // regex for extracting JSON arrays from LLM responses
 var (

@@ -110,13 +110,7 @@ func TestConfig_DreamerConfig(t *testing.T) {
 	if dc.AutoLinkThreshold != 0.85 {
 		t.Errorf("expected AutoLinkThreshold 0.85, got %f", dc.AutoLinkThreshold)
 	}
-	if dc.BehavioralThreshold != 3 {
-		t.Errorf("expected BehavioralThreshold 3, got %d", dc.BehavioralThreshold)
-	}
-	if dc.BehavioralLookbackDays != 30 {
-		t.Errorf("expected BehavioralLookbackDays 30, got %d", dc.BehavioralLookbackDays)
-	}
-	// Store field should be nil (caller must set it)
+	// Store field should be nil (caller must set)
 	if dc.Store != nil {
 		t.Error("expected Store to be nil (caller must set)")
 	}

@@ -92,7 +92,7 @@ cd LLMem && npm install
 ```
 
 This runs `install.js` which:
-1. Copies 4 skill directories to `~/.agents/skills/`
+1. Copies all skill directories to `~/.agents/skills/`
 2. Auto-detects your platform (OpenCode, Claude Code, Copilot CLI)
 3. Deploys the correct plugin to the right location
 4. Deploys OpenCode custom tools to `.opencode/tools/` (if OpenCode detected)
@@ -152,10 +152,9 @@ claude --plugin-dir ~/.claude/plugins/llmem
 ```
 
 The plugin provides:
-- **`SessionStart` hook**: Injects `llmem stats` + behavioral patterns + proposed procedures at session start
-- **`SessionEnd` hook**: Runs `llmem hook ending` for memory extraction + introspection
+- **`SessionStart` hook**: Injects `llmem stats` and `llmem search` at session start
 - **`PreCompact` hook**: Injects key memories before compaction
-- **Skills**: `llmem`, `llmem-setup`, `introspection`, `introspection-review-tracker` — loaded on-demand
+- **Skills**: `llmem`, `llmem-setup` — loaded on-demand
 
 **Instructions in CLAUDE.md — optional.** The `SessionStart` hook injects context. If you want a persistent reminder:
 
@@ -197,7 +196,7 @@ llmem add --type fact --content "test memory"
 llmem search "test"
 
 # Skills are discoverable
-ls ~/.agents/skills/llmem ~/.agents/skills/introspection
+ls ~/.agents/skills/llmem
 
 # Plugin deployed
 # OpenCode:
@@ -232,26 +231,22 @@ Runs nightly at 3am by default. Configure in `~/.config/llmem/config.yaml` under
 Agent Session
     │
     ├── Plugin (auto, no instructions needed)
-    │   ├── session.created/start → llmem stats + search behavioral/proposed → inject context
-    │   ├── session.idle/end      → llmem hook idle/ending → extract + introspect
-    │   └── session.compacting    → llmem context --compacting → preserve key memories
+    │   ├── session.created/start → llmem stats + llmem search → inject context
+    │   └── session.compacting    → llmem search → preserve key memories
     │
     ├── Skills (on-demand, loaded by trigger)
     │   ├── llmem                      → CLI reference, memory types, commands
-    │   ├── llmem-setup                → This file
-    │   ├── introspection              → Self-assessment framework, error taxonomy
-    │   └── introspection-review-tracker → Review outcome tracking
+    │   └── llmem-setup                → This file
     │
     └── Custom Tools (structural, zero-instruction)
         ├── llmem-search   → Search memories
         ├── llmem-add      → Add a memory
         ├── llmem-context  → Get context for a topic
         ├── llmem-invalidate → Soft-delete a memory
-        ├── llmem-stats    → Show memory statistics
-        └── llmem-hook     → Run extraction hook
+        └── llmem-stats    → Show memory statistics
 ```
 
-The plugin handles everything the agent physically cannot do itself (inject context before the first message, extract on idle). The skills provide behavioral guidance when the agent needs it. Custom tools provide typed access to memory operations without requiring skill loading.
+The plugin handles everything the agent physically cannot do itself (inject context before the first message, preserve key memories during compaction). The skills provide behavioral guidance when the agent needs it. Custom tools provide typed access to memory operations without requiring skill loading.
 
 ## Troubleshooting
 
@@ -263,4 +258,4 @@ The plugin handles everything the agent physically cannot do itself (inject cont
 
 **Skills not discovered** — Verify skill directories: `ls ~/.agents/skills/llmem/`. If missing, re-run `node install.js`.
 
-**Context not injected at session start** — Check the plugin log. For OpenCode, run `llmem stats` and `llmem search behavioral --type self_assessment --limit 5` manually to verify the commands work. The plugin runs these same commands.
+**Context not injected at session start** — Check the plugin log. For OpenCode, run `llmem stats` manually to verify the command works. The plugin runs these same commands.

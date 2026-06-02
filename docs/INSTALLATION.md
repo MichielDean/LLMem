@@ -4,7 +4,7 @@ How to install and set up LLMem. [Back to README](../README.md)
 
 ## Go Installation (recommended)
 
-The Go binary provides the full CLI, dream cycle, session hooks, introspection, and extraction.
+The Go binary provides the full CLI, dream cycle, and extraction.
 
 ### Build from source
 
@@ -37,7 +37,7 @@ cd LLMem && npm install
 ```
 
 This runs the postinstall script which:
-1. Copies 4 skill directories to `~/.agents/skills/`
+1. Copies all skill directories to `~/.agents/skills/`
 2. Auto-detects your agent platform (OpenCode, Claude Code, or Copilot CLI)
 3. Deploys the correct plugin to the right location
 
@@ -132,7 +132,7 @@ ms, err := store.NewMemoryStore(store.StoreConfig{
     DBPath:         "",               // defaults to ~/.config/llmem/memory.db
     VecDimensions:  0,               // defaults to 768
     DisableVec:     false,            // set true to skip vec0 virtual table
-    RegisteredTypes: nil,             // defaults to 8 standard types
+    RegisteredTypes: nil,             // defaults to 7 standard types
 })
 if err != nil {
     log.Fatal(err)

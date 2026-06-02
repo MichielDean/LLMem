@@ -1082,7 +1082,7 @@ func TestRegisterMemoryType_InvalidName(t *testing.T) {
 
 func TestDefaultRegisteredTypes(t *testing.T) {
 	types := DefaultRegisteredTypes()
-	expected := []string{"fact", "decision", "preference", "event", "project_state", "procedure", "conversation", "self_assessment"}
+	expected := []string{"fact", "decision", "preference", "event", "project_state", "procedure", "conversation"}
 	if len(types) != len(expected) {
 		t.Errorf("expected %d types, got %d", len(expected), len(types))
 	}

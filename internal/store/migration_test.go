@@ -90,14 +90,14 @@ func TestMigration_AllApplied(t *testing.T) {
 		t.Error("expected extraction_log table to exist")
 	}
 
-	// Verify memory_types table has 8 types
+	// Verify memory_types table has 7 types
 	var mtCount int
 	err = db.QueryRow(`SELECT count(*) FROM "memory_types"`).Scan(&mtCount)
 	if err != nil {
 		t.Fatalf("memory_types count: %v", err)
 	}
-	if mtCount != 8 {
-		t.Errorf("expected 8 memory types, got %d", mtCount)
+	if mtCount != 7 {
+		t.Errorf("expected 7 memory types, got %d", mtCount)
 	}
 
 	// Verify code_chunks table exists

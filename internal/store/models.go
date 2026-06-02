@@ -145,7 +145,7 @@ func ValidRelationTypes() []string {
 	return []string{"supersedes", "related_to", "derived_from"}
 }
 
-// DefaultRegisteredTypes returns the 8 default memory types.
+// DefaultRegisteredTypes returns the 7 default memory types.
 // Returns a new slice each time (defensive copy).
 // Must match the types registered in migration 003_register_default_types.sql.
 func DefaultRegisteredTypes() []string {
@@ -157,7 +157,6 @@ func DefaultRegisteredTypes() []string {
 		"project_state",
 		"procedure",
 		"conversation",
-		"self_assessment",
 	}
 }
 
@@ -175,6 +174,6 @@ type StoreConfig struct {
 	DisableVec bool
 
 	// RegisteredTypes lists the memory types to register at construction.
-	// If empty, defaults to the 8 standard types from DefaultRegisteredTypes().
+	// If empty, defaults to the 7 standard types from DefaultRegisteredTypes().
 	RegisteredTypes []string
 }

@@ -1,5 +1,5 @@
 {
-  "description": "LLMem memory system — injects context at session start, extracts memories at session end, and preserves key memories during compaction.",
+  "description": "LLMem memory system — injects context at session start and preserves key memories during compaction.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,20 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "llmem stats 2>/dev/null && echo '---' && llmem search behavioral --type self_assessment --limit 5 2>/dev/null && echo '---' && llmem search proposed --type procedure --limit 5 2>/dev/null",
+            "command": "llmem stats 2>/dev/null && echo '---' && llmem search 'recent decisions important facts preferences' --limit 5 2>/dev/null",
             "timeout": 30
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "llmem hook ending $(cat /dev/stdin | jq -r '.session_id // empty') 2>/dev/null || true",
-            "timeout": 60
           }
         ]
       }
@@ -31,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "llmem context --compacting 2>/dev/null || true",
+            "command": "llmem search 'recent decisions important facts preferences procedures' --limit 15 2>/dev/null || true",
             "timeout": 30
           }
         ]
