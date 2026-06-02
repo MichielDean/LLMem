@@ -14,11 +14,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and coding conventi
 | [Providers](docs/PROVIDERS.md) | Embedding/generation providers, fallback chains, configuration |
 | [CLI Reference](docs/CLI.md) | All `llmem` commands and options |
 | [Python API](docs/API.md) | MemoryStore, Retriever, extension points, database schema, module reference |
-| [Go API](docs/API.md#go-api) | Go packages — store, config, dream, extract, ollama, paths, session, systemd, taxonomy, urlvalidate |
-| [Integrations](docs/INTEGRATIONS.md) | OpenCode, Copilot CLI, custom tools, session hooks |
+| [Go API](docs/API.md#go-api) | Go packages — store, config, dream, extract, ollama, paths, systemd, taxonomy, urlvalidate |
+| [Integrations](docs/INTEGRATIONS.md) | OpenCode, Copilot CLI, custom tools, plugins |
 | [Configuration](docs/CONFIGURATION.md) | config.yaml reference, path resolution, dream settings |
 | [Search Reranking](docs/RERANKING.md) | Multi-signal reranking, signal weights, type priority |
-| [Dream Cycle & Extraction](docs/DREAM.md) | Dream phases, extraction pipeline, session hooks |
+| [Dream Cycle & Extraction](docs/DREAM.md) | Dream phases, extraction pipeline |
 | [Security](docs/SECURITY.md) | Path validation, SSRF protection, credential handling, code indexing security |
 
 ## Installation
@@ -81,7 +81,7 @@ See below for per-platform setup details.
 
 ### Go (memory store library)
 
-The Go implementation provides the core memory store as a pure-Go library with no CGo dependency, plus a full CLI, dream cycle, session hooks, and extraction:
+The Go implementation provides the core memory store as a pure-Go library with no CGo dependency, plus a full CLI, dream cycle, and extraction:
 
 ```bash
 go get github.com/MichielDean/LLMem
@@ -127,7 +127,6 @@ See [docs/INSTALLATION.md](docs/INSTALLATION.md) for Go build dependencies and [
 LLMem uses platform plugins to inject memory context automatically. **No manual instruction editing required.** The plugin handles:
 
 - **Session start**: Injects memory stats and search results as context
-- **Session idle/end**: Extracts memories from the session transcript
 - **Compaction**: Preserves key memories across context compaction
 
 | Platform | Plugin source | Install path | How to install |
@@ -260,9 +259,9 @@ python -m pytest
 go test ./...
 ```
 
-1349 Python tests and 142 JavaScript tests covering all providers, session adapters (OpenCode, Copilot, none), URL validation, configuration, security, session hooks, CLI commands, and edge cases.
+1349 Python tests and 142 JavaScript tests covering all providers, session adapters (OpenCode, Copilot, none), URL validation, configuration, security, CLI commands, and edge cases.
 
-Go tests covering store operations, FTS5 search, vector search, hybrid retrieval, embedding engine, metrics, URL validation, migrations, type validation, import/export, config, dream cycle, extraction, session hooks, path validation, systemd unit generation, and taxonomy.
+Go tests covering store operations, FTS5 search, vector search, hybrid retrieval, embedding engine, metrics, URL validation, migrations, type validation, import/export, config, dream cycle, extraction, path validation, systemd unit generation, and taxonomy.
 
 ## Makefile
 

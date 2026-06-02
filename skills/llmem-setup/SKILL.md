@@ -243,11 +243,10 @@ Agent Session
         ├── llmem-add      → Add a memory
         ├── llmem-context  → Get context for a topic
         ├── llmem-invalidate → Soft-delete a memory
-        ├── llmem-stats    → Show memory statistics
-        └── llmem-hook     → Run extraction hook
+        └── llmem-stats    → Show memory statistics
 ```
 
-The plugin handles everything the agent physically cannot do itself (inject context before the first message, extract on idle). The skills provide behavioral guidance when the agent needs it. Custom tools provide typed access to memory operations without requiring skill loading.
+The plugin handles everything the agent physically cannot do itself (inject context before the first message, preserve key memories during compaction). The skills provide behavioral guidance when the agent needs it. Custom tools provide typed access to memory operations without requiring skill loading.
 
 ## Troubleshooting
 

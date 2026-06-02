@@ -5,7 +5,7 @@
  * 1. session.created — injects memory context and stats into the session
  * 2. experimental.session.compacting — preserves key memories across compaction
  *
- * All behavioral instructions (when to search, when to add, when to introspect)
+ * All behavioral instructions (when to search, when to add, when to consolidate)
  * live in the llmem SKILL.md and are loaded on-demand by the agent.
  * This plugin only handles the automatic lifecycle hooks.
  *

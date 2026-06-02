@@ -143,18 +143,3 @@ memories := engine.Extract(ctx, text)
 // Check if the extraction model is available
 available := engine.CheckAvailable(ctx)
 ```
-
-The `internal/session` package provides session lifecycle hooks:
-
-```go
-import "github.com/MichielDean/LLMem/internal/session"
-
-coord, err := session.NewSessionHookCoordinator(session.SessionHookConfig{
-    Store: ms,
-})
-
-result, err := coord.OnCreated(ctx, "session-id")       // ("success"|"already_processed"|"error", ...)
-result, err := coord.OnIdle(ctx, "session-id")          // ("success"|"debounced"|"no_transcript", count)
-resultType, contextPath, err := coord.OnCompacting(ctx, "session-id")
-result, err := coord.OnEnding(ctx, "session-id")
-```

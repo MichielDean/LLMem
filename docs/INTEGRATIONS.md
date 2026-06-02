@@ -4,7 +4,7 @@ Integration guides for OpenCode, Claude Code, Copilot CLI, and custom tool imple
 
 ## Architecture: Plugin-First, Zero-Config
 
-LLMem uses a **plugin-first architecture**. The plugin handles automatic memory lifecycle hooks — context injection at session start, memory extraction on idle/end, and context preservation during compaction. **No manual instruction editing required.**
+LLMem uses a **plugin-first architecture**. The plugin handles automatic memory context injection at session start and key memory preservation during compaction. **No manual instruction editing required.**
 
 ```
 Agent Session
@@ -22,8 +22,7 @@ Agent Session
         ├── llmem-add      → Add a memory
         ├── llmem-context  → Get context for a topic
         ├── llmem-invalidate → Soft-delete a memory
-        ├── llmem-stats    → Show memory statistics
-        └── llmem-hook     → Run extraction hook
+        └── llmem-stats    → Show memory statistics
 ```
 
 ### Why Plugin-First?
@@ -71,7 +70,7 @@ To explicitly add it to your `opencode.json`:
 
 ### Custom Tools
 
-The `.opencode/tools/` directory contains six type-safe tools that the agent can invoke directly without loading a skill:
+The `.opencode/tools/` directory contains five type-safe tools that the agent can invoke directly without loading a skill:
 
 | Tool | CLI Equivalent | Description |
 |------|----------------|-------------|
