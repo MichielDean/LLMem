@@ -924,7 +924,7 @@ The Go implementation uses the identical 7-migration schema as Python:
 |-----------|-------------|
 | 001 | Initial schema: `memories`, `relations`, `extraction_log` tables, `memories_fts` FTS5 virtual table |
 | 002 | Add `hints` column (TEXT, JSON array) |
-| 003 | Register default memory types via CHECK constraint |
+| 003 | Register default memory types in `memory_types` table |
 | 004 | Add `code_chunks` table for code indexing |
 | 005 | Add `inbox` table for working memory |
 | 006 | Add `supersedes` and `references` relation types |
