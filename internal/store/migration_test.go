@@ -29,7 +29,7 @@ func TestMigration_AllApplied(t *testing.T) {
 	requiredColumns := []string{
 		"id", "type", "content", "summary", "hints", "source", "confidence",
 		"valid_from", "valid_until", "created_at", "updated_at", "accessed_at",
-		"access_count", "metadata", "embedding",
+		"access_count", "metadata", "embedding", "pinned",
 	}
 	rows, err := db.Query(`SELECT "name" FROM pragma_table_info('memories')`)
 	if err != nil {
@@ -90,14 +90,14 @@ func TestMigration_AllApplied(t *testing.T) {
 		t.Error("expected extraction_log table to exist")
 	}
 
-	// Verify memory_types table has 7 types
+	// Verify memory_types table has 3 types (contract phase: legacy types removed)
 	var mtCount int
 	err = db.QueryRow(`SELECT count(*) FROM "memory_types"`).Scan(&mtCount)
 	if err != nil {
 		t.Fatalf("memory_types count: %v", err)
 	}
-	if mtCount != 7 {
-		t.Errorf("expected 7 memory types, got %d", mtCount)
+	if mtCount != 3 {
+		t.Errorf("expected 3 memory types (stable, volatile, log), got %d", mtCount)
 	}
 
 	// Verify code_chunks table exists
@@ -124,7 +124,8 @@ func TestMigration_AllApplied(t *testing.T) {
 	// Verify required indexes exist
 	requiredIndexes := []string{
 		"idx_memories_type", "idx_memories_valid", "idx_memories_source",
-		"idx_memories_updated_at", "idx_relations_source", "idx_relations_target",
+		"idx_memories_updated_at", "idx_memories_pinned",
+		"idx_relations_source", "idx_relations_target",
 		"idx_code_chunks_file_path", "idx_code_chunks_language", "idx_code_chunks_chunk_type",
 	}
 	allTables := []string{"memories", "relations", "code_chunks"}
@@ -207,8 +208,8 @@ func TestMigration_Numbering(t *testing.T) {
 		t.Fatalf("goose.Up: %v", err)
 	}
 
-	if len(res) < 7 {
-		t.Errorf("expected at least 7 migration results, got %d", len(res))
+	if len(res) < 10 {
+		t.Errorf("expected at least 10 migration results, got %d", len(res))
 	}
 }
 
@@ -225,9 +226,9 @@ func TestMigration_FTS5Search(t *testing.T) {
 	ctx := context.Background()
 
 	// Add memories with distinct content
-	ms.Add(ctx, AddParams{Type: "fact", Content: "golang is a programming language"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "python is also a programming language"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "rust is a systems programming language"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "golang is a programming language"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "python is also a programming language"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "rust is a systems programming language"})
 
 	// Search for "golang"
 	results, err := ms.Search(ctx, SearchParams{Query: "golang", ValidOnly: false, Limit: 10})
@@ -377,8 +378,8 @@ func TestMigration_RelationCheckConstraint(t *testing.T) {
 	defer ms.Close()
 
 	ctx := context.Background()
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target"})
 
 	for _, rt := range []string{"supersedes", "related_to", "derived_from"} {
 		_, err := ms.AddRelation(ctx, id1, id2, rt)
@@ -413,7 +414,7 @@ func TestMigration_Vec0ObjectsDroppedBeforeMigration(t *testing.T) {
 		t.Fatalf("NewMemoryStore: %v", err)
 	}
 
-	_, err = ms.Add(ctx, AddParams{Type: "fact", Content: "test memory for vec0 migration"})
+	_, err = ms.Add(ctx, AddParams{Type: "stable", Content: "test memory for vec0 migration"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -445,12 +446,12 @@ func TestMigration_Vec0ObjectsDroppedBeforeMigration(t *testing.T) {
 	defer ms2.Close()
 
 	var count int
-	err = ms2.db.QueryRow(`SELECT count(*) FROM "memories" WHERE type = 'fact'`).Scan(&count)
+	err = ms2.db.QueryRow(`SELECT count(*) FROM "memories" WHERE type = 'stable'`).Scan(&count)
 	if err != nil {
 		t.Fatalf("query after migration: %v", err)
 	}
 	if count != 1 {
-		t.Errorf("expected 1 fact memory after migration, got %d", count)
+		t.Errorf("expected 1 stable memory after migration, got %d", count)
 	}
 
 	var triggerCount int

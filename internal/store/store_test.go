@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 )
 
 // newTestStore creates a MemoryStore in a temp directory for testing.
@@ -105,7 +106,7 @@ func TestMemoryStore_Add(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := ms.Add(ctx, AddParams{
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "The sky is blue",
 		Summary:    "Sky color",
 		Source:     "test",
@@ -129,7 +130,7 @@ func TestMemoryStore_Add(t *testing.T) {
 	if m.Content != "The sky is blue" {
 		t.Errorf("expected content='The sky is blue', got %q", m.Content)
 	}
-	if m.Type != "fact" {
+	if m.Type != "stable" {
 		t.Errorf("expected type='fact', got %q", m.Type)
 	}
 	if m.Source != "test" {
@@ -163,7 +164,7 @@ func TestMemoryStore_Add_EmbeddingDimensionMismatch(t *testing.T) {
 	// Create embedding with wrong dimensions (2 floats = 8 bytes, but store expects 768 dims = 3072 bytes)
 	wrongEmb := make([]byte, 8) // 2 dimensions
 	_, err := ms.Add(ctx, AddParams{
-		Type:      "fact",
+		Type:      "stable",
 		Content:   "test",
 		Embedding: wrongEmb,
 	})
@@ -178,7 +179,7 @@ func TestMemoryStore_Add_WithCustomID(t *testing.T) {
 
 	id, err := ms.Add(ctx, AddParams{
 		ID:      "custom-id-123",
-		Type:    "fact",
+		Type:    "stable",
 		Content: "test content",
 	})
 	if err != nil {
@@ -193,7 +194,7 @@ func TestMemoryStore_Get(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 	m, err := ms.Get(ctx, id, false)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -223,7 +224,7 @@ func TestMemoryStore_Get_TrackAccess(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 
 	m, err := ms.Get(ctx, id, true)
 	if err != nil {
@@ -241,8 +242,8 @@ func TestMemoryStore_GetBatch(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "content 1"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "content 2"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "content 1"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "content 2"})
 
 	results, err := ms.GetBatch(ctx, []string{id1, id2}, false)
 	if err != nil {
@@ -270,7 +271,7 @@ func TestMemoryStore_Update(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "original content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "original content"})
 
 	newContent := "updated content"
 	ok, err := ms.Update(ctx, UpdateParams{
@@ -309,7 +310,7 @@ func TestMemoryStore_Update_ClearEmbedding(t *testing.T) {
 	ctx := context.Background()
 
 	id, _ := ms.Add(ctx, AddParams{
-		Type:      "fact",
+		Type:      "stable",
 		Content:   "test",
 		Embedding: make([]byte, 768*4), // 768-dim embedding
 	})
@@ -332,7 +333,7 @@ func TestMemoryStore_Update_ConflictingEmbeddingParams(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test"})
 
 	_, err := ms.Update(ctx, UpdateParams{
 		ID:             id,
@@ -348,7 +349,7 @@ func TestMemoryStore_Invalidate(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 
 	ok, err := ms.Invalidate(ctx, id, "outdated info")
 	if err != nil {
@@ -384,7 +385,7 @@ func TestMemoryStore_Delete(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 	ok, err := ms.Delete(ctx, id)
 	if err != nil {
 		t.Fatalf("Delete: %v", err)
@@ -418,8 +419,8 @@ func TestMemoryStore_Delete_TargetSideRelationCleanup(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target"})
 
 	_, err := ms.AddRelation(ctx, id1, id2, "related_to")
 	if err != nil {
@@ -451,9 +452,9 @@ func TestMemoryStore_Search_Query(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "The sky is blue"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "Water is clear"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "Grass is green"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "The sky is blue"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "Water is clear"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "Grass is green"})
 
 	results, err := ms.Search(ctx, SearchParams{Query: "sky", ValidOnly: false, Limit: 10})
 	if err != nil {
@@ -478,15 +479,15 @@ func TestMemoryStore_Search_Type(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact content"})
-	ms.Add(ctx, AddParams{Type: "decision", Content: "decision content"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact content"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "decision content"})
 
-	results, err := ms.Search(ctx, SearchParams{Query: "content", Type: "fact", ValidOnly: false, Limit: 10})
+	results, err := ms.Search(ctx, SearchParams{Query: "content", Type: "stable", ValidOnly: false, Limit: 10})
 	if err != nil {
 		t.Fatalf("Search with type filter: %v", err)
 	}
 	for _, r := range results {
-		if r.Type != "fact" {
+		if r.Type != "stable" {
 			t.Errorf("expected type='fact', got %q", r.Type)
 		}
 	}
@@ -496,9 +497,9 @@ func TestMemoryStore_SearchCount(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "sky is blue and vast"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "ocean is blue and deep"})
-	ms.Add(ctx, AddParams{Type: "decision", Content: "use blue theme"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "sky is blue and vast"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "ocean is blue and deep"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "use blue theme"})
 
 	count, err := ms.SearchCount(ctx, SearchCountParams{Query: "blue", ValidOnly: false})
 	if err != nil {
@@ -513,8 +514,8 @@ func TestMemoryStore_ListAll(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 1"})
-	ms.Add(ctx, AddParams{Type: "decision", Content: "decision 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "decision 1"})
 
 	// Without type filter
 	results, err := ms.ListAll(ctx, ListParams{Limit: 100})
@@ -526,12 +527,12 @@ func TestMemoryStore_ListAll(t *testing.T) {
 	}
 
 	// With type filter
-	results, err = ms.ListAll(ctx, ListParams{Type: "fact", Limit: 100})
+	results, err = ms.ListAll(ctx, ListParams{Type: "stable", Limit: 100})
 	if err != nil {
 		t.Fatalf("ListAll with type: %v", err)
 	}
 	for _, r := range results {
-		if r.Type != "fact" {
+		if r.Type != "stable" {
 			t.Errorf("expected type='fact', got %q", r.Type)
 		}
 	}
@@ -541,8 +542,8 @@ func TestMemoryStore_Count(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test 1"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test 2"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test 2"})
 
 	count, err := ms.Count(ctx, false)
 	if err != nil {
@@ -557,19 +558,19 @@ func TestMemoryStore_CountByType(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test 1"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test 2"})
-	ms.Add(ctx, AddParams{Type: "decision", Content: "test 3"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test 2"})
+	ms.Add(ctx, AddParams{Type: "log", Content: "test 3"})
 
 	result, err := ms.CountByType(ctx, false)
 	if err != nil {
 		t.Fatalf("CountByType: %v", err)
 	}
-	if result["fact"] != 2 {
-		t.Errorf("expected fact=2, got %d", result["fact"])
+	if result["stable"] != 2 {
+		t.Errorf("expected stable=2, got %d", result["stable"])
 	}
-	if result["decision"] != 1 {
-		t.Errorf("expected decision=1, got %d", result["decision"])
+	if result["log"] != 1 {
+		t.Errorf("expected log=1, got %d", result["log"])
 	}
 }
 
@@ -577,8 +578,8 @@ func TestMemoryStore_CountEmbeddings(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "without embedding"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "with embedding", Embedding: make([]byte, 768*4)})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "without embedding"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "with embedding", Embedding: make([]byte, 768*4)})
 
 	count, err := ms.CountEmbeddings(ctx)
 	if err != nil {
@@ -593,8 +594,8 @@ func TestMemoryStore_AddRelation(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source memory"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target memory"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source memory"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target memory"})
 
 	relID, err := ms.AddRelation(ctx, id1, id2, "supersedes")
 	if err != nil {
@@ -609,8 +610,8 @@ func TestMemoryStore_AddRelation_InvalidType(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target"})
 
 	_, err := ms.AddRelation(ctx, id1, id2, "invalid_type")
 	if err == nil {
@@ -622,8 +623,8 @@ func TestMemoryStore_GetRelations(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target"})
 
 	ms.AddRelation(ctx, id1, id2, "related_to")
 
@@ -643,9 +644,9 @@ func TestMemoryStore_GetRelationsBatch(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "1"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "2"})
-	id3, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "3"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "1"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "2"})
+	id3, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "3"})
 
 	ms.AddRelation(ctx, id1, id2, "related_to")
 	ms.AddRelation(ctx, id2, id3, "derived_from")
@@ -663,9 +664,9 @@ func TestMemoryStore_TraverseRelations(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "A"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "B"})
-	id3, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "C"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "A"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "B"})
+	id3, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "C"})
 
 	ms.AddRelation(ctx, id1, id2, "related_to")
 	ms.AddRelation(ctx, id2, id3, "derived_from")
@@ -715,13 +716,13 @@ func TestMemoryStore_SupersedeBySource(t *testing.T) {
 	ctx := context.Background()
 
 	ms.Add(ctx, AddParams{
-		Type:     "fact",
+		Type:     "stable",
 		Content:  "test content",
-		Source:   "conversation",
+		Source:   "stable",
 		Metadata: map[string]any{"source_id": "conv-123"},
 	})
 
-	count, err := ms.SupersedeBySource(ctx, "conversation", "conv-123")
+	count, err := ms.SupersedeBySource(ctx, "stable", "conv-123")
 	if err != nil {
 		t.Fatalf("SupersedeBySource: %v", err)
 	}
@@ -767,7 +768,7 @@ func TestMemoryStore_FindSimilar(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "sky is blue"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "sky is blue"})
 
 	results, err := ms.FindSimilar(ctx, FindSimilarParams{
 		Content:   "sky",
@@ -809,8 +810,8 @@ func TestMemoryStore_ConsolidateDuplicates(t *testing.T) {
 	emb1 := VecToBytes(vec1)
 	emb2 := VecToBytes(vec2)
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 1", Embedding: emb1})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 2", Embedding: emb2})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 1", Embedding: emb1})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 2", Embedding: emb2})
 
 	pairs, err := ms.ConsolidateDuplicates(ctx, 0.99, 100)
 	if err != nil {
@@ -825,8 +826,8 @@ func TestMemoryStore_ExportAll(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 1"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 2"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 2"})
 
 	memories, err := ms.ExportAll(ctx, nil)
 	if err != nil {
@@ -841,9 +842,9 @@ func TestMemoryStore_ExportAll_WithLimit(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 1"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 2"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 3"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 2"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 3"})
 
 	limit := 2
 	memories, err := ms.ExportAll(ctx, &limit)
@@ -859,8 +860,8 @@ func TestMemoryStore_ExportAll_ZeroLimit(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 1"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "fact 2"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 1"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "fact 2"})
 
 	limit := 0
 	memories, err := ms.ExportAll(ctx, &limit)
@@ -877,8 +878,8 @@ func TestMemoryStore_ImportMemories(t *testing.T) {
 	ctx := context.Background()
 
 	memories := []ImportMemory{
-		{Type: "fact", Content: "imported fact 1"},
-		{Type: "decision", Content: "imported decision 1"},
+		{Type: "stable", Content: "imported fact 1"},
+		{Type: "stable", Content: "imported decision 1"},
 	}
 
 	count, err := ms.ImportMemories(ctx, memories)
@@ -895,9 +896,9 @@ func TestMemoryStore_ImportMemories_InvalidEntries(t *testing.T) {
 	ctx := context.Background()
 
 	memories := []ImportMemory{
-		{Type: "fact", Content: "valid entry"},
+		{Type: "stable", Content: "valid entry"},
 		{Type: "", Content: "missing type"},
-		{Type: "fact", Content: ""},
+		{Type: "stable", Content: ""},
 	}
 
 	count, err := ms.ImportMemories(ctx, memories)
@@ -914,7 +915,7 @@ func TestMemoryStore_Touch(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 
 	ok, err := ms.Touch(ctx, id)
 	if err != nil {
@@ -947,8 +948,8 @@ func TestMemoryStore_TouchBatch(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test 1"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test 2"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test 1"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test 2"})
 
 	count, err := ms.TouchBatch(ctx, []string{id1, id2})
 	if err != nil {
@@ -999,7 +1000,7 @@ func TestMemoryStore_SearchByEmbedding_BruteForce(t *testing.T) {
 	}
 	emb := VecToBytes(vec)
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "memory with embedding", Embedding: emb})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "memory with embedding", Embedding: emb})
 
 	results, err := ms.SearchByEmbedding(ctx, vec, false, 10, 0.0)
 	if err != nil {
@@ -1059,7 +1060,7 @@ func TestRegisterMemoryType(t *testing.T) {
 func TestRegisterMemoryType_Duplicate(t *testing.T) {
 	ms := newTestStore(t)
 
-	err := ms.RegisterMemoryType("fact")
+	err := ms.RegisterMemoryType("stable")
 	if err == nil {
 		t.Error("expected error for duplicate type registration")
 	}
@@ -1086,7 +1087,7 @@ func TestRegisterMemoryType_InvalidName(t *testing.T) {
 
 func TestDefaultRegisteredTypes(t *testing.T) {
 	types := DefaultRegisteredTypes()
-	expected := []string{"fact", "decision", "preference", "event", "project_state", "procedure", "conversation"}
+	expected := []string{"stable", "volatile", "log"}
 	if len(types) != len(expected) {
 		t.Errorf("expected %d types, got %d", len(expected), len(types))
 	}
@@ -1117,8 +1118,8 @@ func TestMemoryStore_Search_CountOnly(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test alpha"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test beta"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test alpha"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test beta"})
 
 	count, err := ms.SearchCount(ctx, SearchCountParams{ValidOnly: false})
 	if err != nil {
@@ -1138,7 +1139,7 @@ func TestMemoryStore_GetEmbeddingsWithTypes(t *testing.T) {
 		vec[i] = 0.1
 	}
 	emb := VecToBytes(vec)
-	ms.Add(ctx, AddParams{Type: "fact", Content: "with embedding", Embedding: emb})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "with embedding", Embedding: emb})
 
 	results, err := ms.GetEmbeddingsWithTypes(ctx, 100)
 	if err != nil {
@@ -1147,7 +1148,7 @@ func TestMemoryStore_GetEmbeddingsWithTypes(t *testing.T) {
 	if len(results) != 1 {
 		t.Fatalf("expected 1 result, got %d", len(results))
 	}
-	if results[0].Type != "fact" {
+	if results[0].Type != "stable" {
 		t.Errorf("expected type='fact', got %q", results[0].Type)
 	}
 	if len(results[0].Embedding) != len(emb) {
@@ -1159,7 +1160,7 @@ func TestMemoryStore_SerializationBoundary(t *testing.T) {
 	// Verify that Memory struct serializes with empty collections, not null
 	m := &Memory{
 		ID:          "test",
-		Type:        "fact",
+		Type:        "stable",
 		Content:     "test content",
 		Hints:       []string{},
 		Metadata:    map[string]any{},
@@ -1186,7 +1187,7 @@ func TestMemoryStore_ScanMemory_NilGuards(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, err := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, err := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1211,7 +1212,7 @@ func TestMemoryStore_Add_WithMetadataAndHints(t *testing.T) {
 	ctx := context.Background()
 
 	id, err := ms.Add(ctx, AddParams{
-		Type:    "fact",
+		Type:    "stable",
 		Content: "test content",
 		Hints:   []string{"hint1", "hint2"},
 		Metadata: map[string]any{
@@ -1239,8 +1240,8 @@ func TestMemoryStore_Delete_CascadeRelations(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target"})
 
 	ms.AddRelation(ctx, id1, id2, "related_to")
 
@@ -1262,7 +1263,7 @@ func TestMemoryStore_Invalidate_ClearsEmbedding(t *testing.T) {
 
 	emb := make([]byte, 768*4)
 	id, _ := ms.Add(ctx, AddParams{
-		Type:      "fact",
+		Type:      "stable",
 		Content:   "test content",
 		Embedding: emb,
 	})
@@ -1279,7 +1280,7 @@ func TestMemoryStore_Add_DefaultSource(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 	m, _ := ms.Get(ctx, id, false)
 	if m.Source != "manual" {
 		t.Errorf("expected default source='manual', got %q", m.Source)
@@ -1290,7 +1291,7 @@ func TestMemoryStore_Add_DefaultConfidence(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test content", Confidence: 0})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test content", Confidence: 0})
 	m, _ := ms.Get(ctx, id, false)
 	// Confidence of 0 should not override default (implementation uses 0.8 default when 0)
 	// But since 0 is passed, the SQL defaults to 0.8
@@ -1316,7 +1317,7 @@ func TestMemoryStore_Search_EmptyQuery(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	ms.Add(ctx, AddParams{Type: "fact", Content: "test content"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "test content"})
 
 	results, err := ms.Search(ctx, SearchParams{Query: "", ValidOnly: false, Limit: 10})
 	if err != nil {
@@ -1374,7 +1375,7 @@ func TestMemoryStore_ExportAll_DefaultLimit(t *testing.T) {
 
 	// Add fewer than default limit
 	for i := 0; i < 3; i++ {
-		ms.Add(ctx, AddParams{Type: "fact", Content: fmt.Sprintf("fact %d", i)})
+		ms.Add(ctx, AddParams{Type: "stable", Content: fmt.Sprintf("fact %d", i)})
 	}
 
 	memories, err := ms.ExportAll(ctx, nil)
@@ -1392,7 +1393,7 @@ func TestIsValidTypeName_PrecompiledRegex(t *testing.T) {
 		name  string
 		valid bool
 	}{
-		{"fact", true},
+		{"stable", true},
 		{"my_type", true},
 		{"a", true},
 		{"Type1", false}, // uppercase
@@ -1434,7 +1435,7 @@ func TestSearchByEmbedding_DefaultLimit(t *testing.T) {
 			vec[j] = float32(i) * 0.01
 		}
 		ms.Add(ctx, AddParams{
-			Type:      "fact",
+			Type:      "stable",
 			Content:   fmt.Sprintf("memory %d", i),
 			Embedding: VecToBytes(vec),
 		})
@@ -1458,7 +1459,7 @@ func TestDefaultRegisteredTypes_IncludesConversation(t *testing.T) {
 	types := DefaultRegisteredTypes()
 	found := false
 	for _, t := range types {
-		if t == "conversation" {
+		if t == "stable" {
 			found = true
 			break
 		}
@@ -1473,7 +1474,7 @@ func TestConversationType_IsAddable(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, err := ms.Add(ctx, AddParams{Type: "conversation", Content: "user discussed preferences"})
+	id, err := ms.Add(ctx, AddParams{Type: "stable", Content: "user discussed preferences"})
 	if err != nil {
 		t.Fatalf("Add with 'conversation' type: %v", err)
 	}
@@ -1485,7 +1486,7 @@ func TestConversationType_IsAddable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if m.Type != "conversation" {
+	if m.Type != "stable" {
 		t.Errorf("expected type='conversation', got %q", m.Type)
 	}
 }
@@ -1495,7 +1496,7 @@ func TestScanMemoryFields_NilGuards_FromBatch(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, err := ms.Add(ctx, AddParams{Type: "fact", Content: "batch test"})
+	id, err := ms.Add(ctx, AddParams{Type: "stable", Content: "batch test"})
 	if err != nil {
 		t.Fatalf("Add: %v", err)
 	}
@@ -1523,9 +1524,9 @@ func TestSearch_FTS_UsesRank(t *testing.T) {
 	ctx := context.Background()
 
 	// Add multiple memories with overlapping content to establish ranking
-	ms.Add(ctx, AddParams{Type: "fact", Content: "The sky is blue and vast during the day"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "The sky was blue yesterday"})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "The ocean is deep and blue"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "The sky is blue and vast during the day"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "The sky was blue yesterday"})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "The ocean is deep and blue"})
 
 	results, err := ms.Search(ctx, SearchParams{Query: "sky blue", ValidOnly: false, Limit: 10})
 	if err != nil {
@@ -1562,8 +1563,8 @@ func TestAddRelation_AllValidRelatioTypes(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id1, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "source memory"})
-	id2, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "target memory"})
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "source memory"})
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "target memory"})
 
 	for _, rt := range ValidRelationTypes() {
 		relID, err := ms.AddRelation(ctx, id1, id2, rt)
@@ -1588,9 +1589,9 @@ func TestGetEmbeddingsWithTypes_ZeroLimit_NoLimit(t *testing.T) {
 		vec[i] = 0.1
 	}
 	emb := VecToBytes(vec)
-	ms.Add(ctx, AddParams{Type: "fact", Content: "m1", Embedding: emb})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "m2", Embedding: emb})
-	ms.Add(ctx, AddParams{Type: "fact", Content: "m3", Embedding: emb})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "m1", Embedding: emb})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "m2", Embedding: emb})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "m3", Embedding: emb})
 
 	results, err := ms.GetEmbeddingsWithTypes(ctx, 0)
 	if err != nil {
@@ -1611,7 +1612,7 @@ func TestGetEmbeddingsWithTypes_NegativeLimit_DefaultLimit(t *testing.T) {
 		vec[i] = 0.1
 	}
 	emb := VecToBytes(vec)
-	ms.Add(ctx, AddParams{Type: "fact", Content: "m1", Embedding: emb})
+	ms.Add(ctx, AddParams{Type: "stable", Content: "m1", Embedding: emb})
 
 	results, err := ms.GetEmbeddingsWithTypes(ctx, -1)
 	if err != nil {
@@ -1630,7 +1631,7 @@ func TestMemoryStore_Add_EmbeddingExceedsMaxSize(t *testing.T) {
 	// Create an embedding that exceeds maxEmbeddingBytes (1MB)
 	oversizedEmbedding := make([]byte, maxEmbeddingBytes+1)
 	_, err := ms.Add(ctx, AddParams{
-		Type:      "fact",
+		Type:      "stable",
 		Content:   "test content",
 		Embedding: oversizedEmbedding,
 	})
@@ -1653,7 +1654,7 @@ func TestMemoryStore_Add_EmbeddingAtMaxSize_Succeeds(t *testing.T) {
 	// Create an embedding exactly at maxEmbeddingBytes — should succeed
 	exactMaxEmbedding := make([]byte, maxEmbeddingBytes)
 	id, err := ms.Add(ctx, AddParams{
-		Type:      "fact",
+		Type:      "stable",
 		Content:   "test content",
 		Embedding: exactMaxEmbedding,
 	})
@@ -1671,9 +1672,9 @@ func TestMemoryStore_ImportMemories_EmbeddingExceedsMaxSize(t *testing.T) {
 
 	// Create memories where one has an oversized embedding
 	memories := []ImportMemory{
-		{Type: "fact", Content: "valid entry"},
-		{Type: "fact", Content: "oversized embedding", Embedding: make([]byte, maxEmbeddingBytes+1)},
-		{Type: "fact", Content: "another valid entry"},
+		{Type: "stable", Content: "valid entry"},
+		{Type: "stable", Content: "oversized embedding", Embedding: make([]byte, maxEmbeddingBytes+1)},
+		{Type: "stable", Content: "another valid entry"},
 	}
 
 	count, err := ms.ImportMemories(ctx, memories)
@@ -1692,7 +1693,7 @@ func TestMemoryStore_ImportMemories_EmbeddingAtMaxSize_Succeeds(t *testing.T) {
 
 	// An embedding exactly at maxEmbeddingBytes should be accepted
 	memories := []ImportMemory{
-		{Type: "fact", Content: "at max size", Embedding: make([]byte, maxEmbeddingBytes)},
+		{Type: "stable", Content: "at max size", Embedding: make([]byte, maxEmbeddingBytes)},
 	}
 
 	count, err := ms.ImportMemories(ctx, memories)
@@ -1708,7 +1709,7 @@ func TestMemoryStore_Update_EmbeddingExceedsMaxSize(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "original content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "original content"})
 
 	oversizedEmbedding := make([]byte, maxEmbeddingBytes+1)
 	_, err := ms.Update(ctx, UpdateParams{
@@ -1730,7 +1731,7 @@ func TestMemoryStore_Update_EmbeddingAtMaxSize_Succeeds(t *testing.T) {
 	ms := newTestStore(t)
 	ctx := context.Background()
 
-	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "original content"})
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "original content"})
 
 	exactMaxEmbedding := make([]byte, maxEmbeddingBytes)
 	ok, err := ms.Update(ctx, UpdateParams{
@@ -1784,7 +1785,7 @@ func TestSearch_FTSOnly_WithQuery(t *testing.T) {
 
 	// Add a memory to search for
 	_, err := ms.Add(ctx, AddParams{
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is statically typed",
 		Source:     "test",
 		Confidence: 0.9,
@@ -1802,5 +1803,827 @@ func TestSearch_FTSOnly_WithQuery(t *testing.T) {
 	}
 	if len(results) == 0 {
 		t.Error("expected at least one result with FTSOnly")
+	}
+}
+
+// ═══════════════════════════════════════════════════════════
+// Ticket #54: Schema expand — pinned column + 3 new types
+// ═══════════════════════════════════════════════════════════
+
+func TestMemoryStore_Add_StableAutoTTL(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, err := ms.Add(ctx, AddParams{
+		Type:    "stable",
+		Content: "Important decision about architecture",
+	})
+	if err != nil {
+		t.Fatalf("Add stable: %v", err)
+	}
+
+	m, err := ms.Get(ctx, id, false)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected memory, got nil")
+	}
+	if m.ValidUntil == "" {
+		t.Error("expected stable memory to have auto-computed valid_until, got empty")
+	}
+	if m.Pinned {
+		t.Error("expected new memory to not be pinned")
+	}
+
+	// Verify TTL is approximately 90 days from now
+	validUntil, err := time.Parse(time.RFC3339, m.ValidUntil)
+	if err != nil {
+		t.Fatalf("parse valid_until: %v", err)
+	}
+	now := time.Now().UTC()
+	diff := validUntil.Sub(now)
+	if diff < 89*24*time.Hour || diff > 91*24*time.Hour {
+		t.Errorf("expected stable TTL ~90 days, got %v", diff)
+	}
+}
+
+func TestMemoryStore_Add_VolatileAutoTTL(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, err := ms.Add(ctx, AddParams{
+		Type:    "volatile",
+		Content: "Current project state: working on auth module",
+	})
+	if err != nil {
+		t.Fatalf("Add volatile: %v", err)
+	}
+
+	m, err := ms.Get(ctx, id, false)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected memory, got nil")
+	}
+	if m.ValidUntil == "" {
+		t.Error("expected volatile memory to have auto-computed valid_until, got empty")
+	}
+
+	validUntil, err := time.Parse(time.RFC3339, m.ValidUntil)
+	if err != nil {
+		t.Fatalf("parse valid_until: %v", err)
+	}
+	now := time.Now().UTC()
+	diff := validUntil.Sub(now)
+	if diff < 13*24*time.Hour || diff > 15*24*time.Hour {
+		t.Errorf("expected volatile TTL ~14 days, got %v", diff)
+	}
+}
+
+func TestMemoryStore_Add_LogAutoTTL(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, err := ms.Add(ctx, AddParams{
+		Type:    "log",
+		Content: "Applied to Acme Corp for Engineering Manager role",
+	})
+	if err != nil {
+		t.Fatalf("Add log: %v", err)
+	}
+
+	m, err := ms.Get(ctx, id, false)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if m == nil {
+		t.Fatal("expected memory, got nil")
+	}
+	if m.ValidUntil == "" {
+		t.Error("expected log memory to have auto-computed valid_until, got empty")
+	}
+
+	validUntil, err := time.Parse(time.RFC3339, m.ValidUntil)
+	if err != nil {
+		t.Fatalf("parse valid_until: %v", err)
+	}
+	now := time.Now().UTC()
+	diff := validUntil.Sub(now)
+	if diff < 89*24*time.Hour || diff > 91*24*time.Hour {
+		t.Errorf("expected log TTL ~90 days, got %v", diff)
+	}
+}
+
+func TestMemoryStore_Add_LegacyTypeRejected(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Legacy types should be rejected (contract phase removed them)
+	for _, typ := range []string{"fact", "decision", "preference", "event", "project_state", "procedure", "conversation"} {
+		_, err := ms.Add(ctx, AddParams{
+			Type:    typ,
+			Content: "test content for " + typ,
+		})
+		if err == nil {
+			t.Errorf("expected legacy type %q to be rejected, but Add succeeded", typ)
+		}
+	}
+}
+
+func TestMemoryStore_Add_AllTypesAccepted(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Only the 3 new tier types should be accepted
+	allTypes := []string{"stable", "volatile", "log"}
+	for _, typ := range allTypes {
+		_, err := ms.Add(ctx, AddParams{
+			Type:    typ,
+			Content: "test for " + typ,
+		})
+		if err != nil {
+			t.Errorf("expected type %q to be accepted, got error: %v", typ, err)
+		}
+	}
+}
+
+func TestMemoryStore_Add_PinnedFieldDefault(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, err := ms.Add(ctx, AddParams{
+		Type:    "stable",
+		Content: "test pinned default",
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	m, err := ms.Get(ctx, id, false)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if m.Pinned {
+		t.Error("expected new memory to have pinned=false by default")
+	}
+}
+
+func TestMemoryStore_Add_ExplicitValidUntilOverridesAutoTTL(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	explicit := "2025-12-31T23:59:59Z"
+	id, err := ms.Add(ctx, AddParams{
+		Type:       "stable",
+		Content:    "test explicit valid_until",
+		ValidUntil: explicit,
+	})
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	m, err := ms.Get(ctx, id, false)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if m.ValidUntil != explicit {
+		t.Errorf("expected explicit valid_until %q, got %q", explicit, m.ValidUntil)
+	}
+}
+
+func TestDefaultTTLForType(t *testing.T) {
+	tests := []struct {
+		typ      string
+		expected int
+	}{
+		{"stable", 90},
+		{"volatile", 14},
+		{"log", 90},
+		{"unknown", 0},
+		{"", 0},
+	}
+	for _, tt := range tests {
+		got := DefaultTTLForType(tt.typ)
+		if got != tt.expected {
+			t.Errorf("DefaultTTLForType(%q) = %d, want %d", tt.typ, got, tt.expected)
+		}
+	}
+}
+
+func TestIsNewTierType(t *testing.T) {
+	for _, typ := range []string{"stable", "volatile", "log"} {
+		if !IsNewTierType(typ) {
+			t.Errorf("expected %q to be a new tier type", typ)
+		}
+	}
+	for _, typ := range []string{"fact", "decision", "event", "unknown", ""} {
+		if IsNewTierType(typ) {
+			t.Errorf("expected %q to NOT be a new tier type", typ)
+		}
+	}
+}
+
+// ═══════════════════════════════════════════════════════════
+// Ticket #55: Pinning — pin/unpin stable memories
+// ═══════════════════════════════════════════════════════════
+
+func TestMemoryStore_Pin_StableMemory(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "important decision"})
+
+	ok, err := ms.Pin(ctx, id)
+	if err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	if !ok {
+		t.Error("expected ok=true for pinning existing memory")
+	}
+
+	m, _ := ms.Get(ctx, id, false)
+	if !m.Pinned {
+		t.Error("expected memory to be pinned after Pin()")
+	}
+	if m.ValidUntil != "" {
+		t.Errorf("expected pinned memory to have valid_until=NULL (empty string), got %q", m.ValidUntil)
+	}
+}
+
+func TestMemoryStore_Unpin_StableMemory(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "important decision"})
+	_, _ = ms.Pin(ctx, id)
+
+	ok, err := ms.Unpin(ctx, id)
+	if err != nil {
+		t.Fatalf("Unpin: %v", err)
+	}
+	if !ok {
+		t.Error("expected ok=true for unpinning existing memory")
+	}
+
+	m, _ := ms.Get(ctx, id, false)
+	if m.Pinned {
+		t.Error("expected memory to not be pinned after Unpin()")
+	}
+	if m.ValidUntil == "" {
+		t.Error("expected unpinned memory to have recomputed valid_until")
+	}
+
+	// Verify TTL is approximately 90 days from now
+	validUntil, err := time.Parse(time.RFC3339, m.ValidUntil)
+	if err != nil {
+		t.Fatalf("parse valid_until: %v", err)
+	}
+	now := time.Now().UTC()
+	diff := validUntil.Sub(now)
+	if diff < 89*24*time.Hour || diff > 91*24*time.Hour {
+		t.Errorf("expected unpinned stable TTL ~90 days, got %v", diff)
+	}
+}
+
+func TestMemoryStore_Pin_VolatileReturnsError(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "volatile", Content: "project state"})
+
+	_, err := ms.Pin(ctx, id)
+	if err == nil {
+		t.Error("expected error when pinning volatile memory")
+	}
+}
+
+func TestMemoryStore_Pin_LogReturnsError(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "log", Content: "application record"})
+
+	_, err := ms.Pin(ctx, id)
+	if err == nil {
+		t.Error("expected error when pinning log memory")
+	}
+}
+
+func TestMemoryStore_Pin_NonExistentReturnsFalse(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	ok, err := ms.Pin(ctx, "nonexistent-id")
+	if err != nil {
+		t.Fatalf("Pin: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false for non-existent memory")
+	}
+}
+
+func TestMemoryStore_Unpin_NonExistentReturnsFalse(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	ok, err := ms.Unpin(ctx, "nonexistent-id")
+	if err != nil {
+		t.Fatalf("Unpin: %v", err)
+	}
+	if ok {
+		t.Error("expected ok=false for non-existent memory")
+	}
+}
+
+func TestMemoryStore_Unpin_NotPinnedIsNoOp(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test"})
+
+	// Unpinning a memory that was never pinned should succeed (idempotent)
+	ok, err := ms.Unpin(ctx, id)
+	if err != nil {
+		t.Fatalf("Unpin: %v", err)
+	}
+	if !ok {
+		t.Error("expected ok=true for unpinning existing memory (even if not pinned)")
+	}
+
+	m, _ := ms.Get(ctx, id, false)
+	if m.Pinned {
+		t.Error("expected memory to not be pinned")
+	}
+}
+
+func TestMemoryStore_Pin_LegacyTypeReturnsError(t *testing.T) {
+	ms := newTestStoreWithLegacyTypes(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "fact", Content: "test fact"})
+
+	_, err := ms.Pin(ctx, id)
+	if err == nil {
+		t.Error("expected error when pinning legacy type (fact)")
+	}
+}
+
+// ═══════════════════════════════════════════════════════════
+// Ticket #56: Briefing — llmem brief command
+// ═══════════════════════════════════════════════════════════
+
+func TestBriefing_IncludesPinnedStable(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "pinned decision"})
+	_, _ = ms.Pin(ctx, id)
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	found := false
+	for _, m := range b.Pinned.Memories {
+		if m.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected pinned memory to appear in Pinned section")
+	}
+}
+
+func TestBriefing_IncludesNonExpiredVolatile(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "volatile", Content: "active project state"})
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	found := false
+	for _, m := range b.Volatile.Memories {
+		if m.ID == id {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected non-expired volatile memory to appear in Active section")
+	}
+}
+
+func TestBriefing_IncludesRecentStableNotPinned(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	pinnedID, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "pinned decision"})
+	_, _ = ms.Pin(ctx, pinnedID)
+
+	recentID, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "recent decision"})
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	// Pinned should be in Pinned section
+	foundPinned := false
+	for _, m := range b.Pinned.Memories {
+		if m.ID == pinnedID {
+			foundPinned = true
+		}
+	}
+	if !foundPinned {
+		t.Error("expected pinned memory in Pinned section")
+	}
+
+	// Recent (non-pinned) should be in Recent section, not Pinned
+	foundRecent := false
+	for _, m := range b.RecentStable.Memories {
+		if m.ID == recentID {
+			foundRecent = true
+		}
+	}
+	if !foundRecent {
+		t.Error("expected non-pinned recent stable in Recent section")
+	}
+
+	// Recent should NOT appear in Pinned
+	for _, m := range b.Pinned.Memories {
+		if m.ID == recentID {
+			t.Error("non-pinned memory should not appear in Pinned section")
+		}
+	}
+}
+
+func TestBriefing_Top5RecentStable(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Add 7 stable memories (none pinned)
+	for i := 0; i < 7; i++ {
+		ms.Add(ctx, AddParams{Type: "stable", Content: fmt.Sprintf("decision %d", i)})
+	}
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	if len(b.RecentStable.Memories) != 5 {
+		t.Errorf("expected exactly 5 recent stable memories, got %d", len(b.RecentStable.Memories))
+	}
+}
+
+func TestBriefing_CapsAtMaxLines(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Add lots of memories to exceed cap
+	for i := 0; i < 20; i++ {
+		ms.Add(ctx, AddParams{Type: "stable", Content: fmt.Sprintf("stable decision %d with some content", i)})
+	}
+	for i := 0; i < 20; i++ {
+		ms.Add(ctx, AddParams{Type: "volatile", Content: fmt.Sprintf("volatile state %d with content", i)})
+	}
+
+	cfg := BriefingConfig{MaxLines: 15, RecentStable: 5, RecentVolatile: 3}
+	b, err := ms.GenerateBriefing(ctx, cfg)
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	output := b.Format()
+	lineCount := strings.Count(output, "\n")
+	if lineCount > 20 { // allow small overflow for headers
+		t.Errorf("expected briefing under ~20 lines with cap=15, got %d lines", lineCount)
+	}
+
+	// Recent stable should be dropped first
+	if len(b.RecentStable.Memories) > 0 {
+		t.Errorf("expected recent stable to be fully dropped when over cap, got %d", len(b.RecentStable.Memories))
+	}
+}
+
+func TestBriefing_EmptyStore(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	if len(b.Pinned.Memories) != 0 {
+		t.Error("expected no pinned memories in empty store")
+	}
+	if len(b.Volatile.Memories) != 0 {
+		t.Error("expected no volatile memories in empty store")
+	}
+	if len(b.RecentStable.Memories) != 0 {
+		t.Error("expected no recent stable in empty store")
+	}
+	if b.StoreHealth.StableTotal != 0 || b.StoreHealth.VolatileTotal != 0 || b.StoreHealth.LogTotal != 0 {
+		t.Error("expected zero counts in empty store")
+	}
+	if b.StoreHealth.ExpiredCount != 0 {
+		t.Error("expected zero expired in empty store")
+	}
+}
+
+func TestBriefing_OnlyExpiredMemories(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Add a volatile memory with a past valid_until
+	id, _ := ms.Add(ctx, AddParams{Type: "volatile", Content: "expired state"})
+	// Manually set valid_until to past
+	past := time.Now().UTC().AddDate(0, 0, -1).Format(time.RFC3339)
+	ms.Update(ctx, UpdateParams{ID: id, ValidUntil: &past})
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	// Expired volatile should NOT appear in Active section
+	for _, m := range b.Volatile.Memories {
+		if m.ID == id {
+			t.Error("expected expired volatile to NOT appear in Active section")
+		}
+	}
+	// But should be counted in expired
+	if b.StoreHealth.ExpiredCount < 1 {
+		t.Error("expected at least 1 expired memory in health stats")
+	}
+}
+
+func TestBriefing_StoreHealth(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Add memories of each type
+	ms.Add(ctx, AddParams{Type: "stable", Content: "s1"})
+	pinnedID, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "s2"})
+	ms.Pin(ctx, pinnedID)
+	ms.Add(ctx, AddParams{Type: "volatile", Content: "v1"})
+	ms.Add(ctx, AddParams{Type: "log", Content: "l1"})
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	if b.StoreHealth.StableTotal != 2 {
+		t.Errorf("expected stableTotal=2, got %d", b.StoreHealth.StableTotal)
+	}
+	if b.StoreHealth.StablePinned != 1 {
+		t.Errorf("expected stablePinned=1, got %d", b.StoreHealth.StablePinned)
+	}
+	if b.StoreHealth.VolatileTotal != 1 {
+		t.Errorf("expected volatileTotal=1, got %d", b.StoreHealth.VolatileTotal)
+	}
+	if b.StoreHealth.LogTotal != 1 {
+		t.Errorf("expected logTotal=1, got %d", b.StoreHealth.LogTotal)
+	}
+}
+
+func TestBriefing_Format(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test decision"})
+	_, _ = ms.Pin(ctx, id)
+
+	b, err := ms.GenerateBriefing(ctx, DefaultBriefingConfig())
+	if err != nil {
+		t.Fatalf("GenerateBriefing: %v", err)
+	}
+
+	output := b.Format()
+	if !strings.Contains(output, "## Session Briefing") {
+		t.Error("expected '## Session Briefing' header in format output")
+	}
+	if !strings.Contains(output, "### Pinned") {
+		t.Error("expected '### Pinned' section in format output")
+	}
+	if !strings.Contains(output, "### Store Health") {
+		t.Error("expected '### Store Health' in format output")
+	}
+	if !strings.Contains(output, id) {
+		t.Error("expected memory ID in format output")
+	}
+}
+
+// ═══════════════════════════════════════════════════════════
+// Ticket #57: TTL pruning + amend — llmem amend command
+// ═══════════════════════════════════════════════════════════
+
+func TestMemoryStore_PruneExpired_DeletesNonPinnedExpired(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Add a stable memory
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "will expire"})
+	// Manually set valid_until to past
+	past := time.Now().UTC().AddDate(0, 0, -1).Format(time.RFC3339)
+	ms.Update(ctx, UpdateParams{ID: id1, ValidUntil: &past})
+
+	// Add another that's still valid
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "still valid"})
+
+	pruned, err := ms.PruneExpired(ctx)
+	if err != nil {
+		t.Fatalf("PruneExpired: %v", err)
+	}
+	if pruned != 1 {
+		t.Errorf("expected 1 pruned, got %d", pruned)
+	}
+
+	// Verify expired one is gone
+	m, _ := ms.Get(ctx, id1, false)
+	if m != nil {
+		t.Error("expected expired memory to be deleted")
+	}
+
+	// Verify valid one survives
+	m2, _ := ms.Get(ctx, id2, false)
+	if m2 == nil {
+		t.Error("expected valid memory to survive pruning")
+	}
+}
+
+func TestMemoryStore_PruneExpired_PreservesPinned(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "pinned but expired"})
+	_, _ = ms.Pin(ctx, id)
+
+	// Manually set valid_until to past (pinning sets it to NULL, so set it back)
+	past := time.Now().UTC().AddDate(0, 0, -1).Format(time.RFC3339)
+	ms.db.ExecContext(ctx, `UPDATE "memories" SET "valid_until" = ? WHERE "id" = ?`, past, id)
+
+	pruned, err := ms.PruneExpired(ctx)
+	if err != nil {
+		t.Fatalf("PruneExpired: %v", err)
+	}
+	if pruned != 0 {
+		t.Errorf("expected 0 pruned (pinned preserved), got %d", pruned)
+	}
+
+	m, _ := ms.Get(ctx, id, false)
+	if m == nil {
+		t.Error("expected pinned memory to survive pruning even with past valid_until")
+	}
+}
+
+func TestMemoryStore_PruneExpired_EmptyStore(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	pruned, err := ms.PruneExpired(ctx)
+	if err != nil {
+		t.Fatalf("PruneExpired: %v", err)
+	}
+	if pruned != 0 {
+		t.Errorf("expected 0 pruned on empty store, got %d", pruned)
+	}
+}
+
+func TestMemoryStore_PruneExpired_NoExpiredMemories(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	// Add memories with future TTLs
+	ms.Add(ctx, AddParams{Type: "stable", Content: "s1"})
+	ms.Add(ctx, AddParams{Type: "volatile", Content: "v1"})
+
+	pruned, err := ms.PruneExpired(ctx)
+	if err != nil {
+		t.Fatalf("PruneExpired: %v", err)
+	}
+	if pruned != 0 {
+		t.Errorf("expected 0 pruned when no expired memories, got %d", pruned)
+	}
+}
+
+func TestMemoryStore_TouchBatch_ResetsTTLForStable(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test stable"})
+
+	// Get initial valid_until
+	m1, _ := ms.Get(ctx, id, false)
+	initialExpiry, _ := time.Parse(time.RFC3339, m1.ValidUntil)
+
+	// Touch should reset TTL
+	time.Sleep(10 * time.Millisecond)
+	_, err := ms.TouchBatch(ctx, []string{id})
+	if err != nil {
+		t.Fatalf("TouchBatch: %v", err)
+	}
+
+	m2, _ := ms.Get(ctx, id, false)
+	newExpiry, _ := time.Parse(time.RFC3339, m2.ValidUntil)
+
+	if newExpiry.Before(initialExpiry) {
+		t.Errorf("expected TTL to be reset after TouchBatch, new=%v initial=%v", newExpiry, initialExpiry)
+	}
+}
+
+func TestMemoryStore_TouchBatch_ResetsTTLForVolatile(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "volatile", Content: "test volatile"})
+
+	m1, _ := ms.Get(ctx, id, false)
+	initialExpiry, _ := time.Parse(time.RFC3339, m1.ValidUntil)
+
+	time.Sleep(10 * time.Millisecond)
+	_, err := ms.TouchBatch(ctx, []string{id})
+	if err != nil {
+		t.Fatalf("TouchBatch: %v", err)
+	}
+
+	m2, _ := ms.Get(ctx, id, false)
+	newExpiry, _ := time.Parse(time.RFC3339, m2.ValidUntil)
+
+	if newExpiry.Before(initialExpiry) {
+		t.Errorf("expected volatile TTL to be reset after TouchBatch, new=%v initial=%v", newExpiry, initialExpiry)
+	}
+}
+
+func TestMemoryStore_TouchBatch_DoesNotResetTTLForLog(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "log", Content: "test log"})
+
+	m1, _ := ms.Get(ctx, id, false)
+	initialValidUntil := m1.ValidUntil
+
+	time.Sleep(10 * time.Millisecond)
+	_, err := ms.TouchBatch(ctx, []string{id})
+	if err != nil {
+		t.Fatalf("TouchBatch: %v", err)
+	}
+
+	m2, _ := ms.Get(ctx, id, false)
+	if m2.ValidUntil != initialValidUntil {
+		t.Errorf("expected log TTL to NOT be reset after TouchBatch, initial=%q new=%q", initialValidUntil, m2.ValidUntil)
+	}
+}
+
+func TestMemoryStore_TouchBatch_DoesNotResetTTLForPinned(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "pinned test"})
+	_, _ = ms.Pin(ctx, id)
+
+	// Pin sets valid_until to NULL, so it should stay NULL after TouchBatch
+	_, err := ms.TouchBatch(ctx, []string{id})
+	if err != nil {
+		t.Fatalf("TouchBatch: %v", err)
+	}
+
+	m, _ := ms.Get(ctx, id, false)
+	if m.ValidUntil != "" {
+		t.Errorf("expected pinned memory to have valid_until=NULL (empty), got %q", m.ValidUntil)
+	}
+}
+
+func TestMemoryStore_Get_TrackAccessResetsTTL(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "test get trackAccess"})
+
+	m1, _ := ms.Get(ctx, id, false)
+	initialExpiry, _ := time.Parse(time.RFC3339, m1.ValidUntil)
+
+	time.Sleep(10 * time.Millisecond)
+	_, err := ms.Get(ctx, id, true)
+	if err != nil {
+		t.Fatalf("Get with trackAccess: %v", err)
+	}
+
+	m2, _ := ms.Get(ctx, id, false)
+	newExpiry, _ := time.Parse(time.RFC3339, m2.ValidUntil)
+
+	if newExpiry.Before(initialExpiry) {
+		t.Errorf("expected TTL to be reset after Get(trackAccess=true), new=%v initial=%v", newExpiry, initialExpiry)
 	}
 }

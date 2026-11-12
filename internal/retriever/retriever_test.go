@@ -92,7 +92,7 @@ func TestRetriever_HybridSearch_FTSOnlyMode(t *testing.T) {
 	ctx := context.Background()
 	_, err = ms.Add(ctx, store.AddParams{
 		ID:       "test-1",
-		Type:     "fact",
+		Type:     "stable",
 		Content:  "Go is a programming language",
 		Source:   "test",
 		Confidence: 0.9,
@@ -226,7 +226,7 @@ func TestRetriever_ComputeRerankSignals(t *testing.T) {
 	now := time.Now().UTC()
 	mem := &store.Memory{
 		ID:          "test-1",
-		Type:        "decision",
+		Type:        "stable",
 		Confidence:  0.9,
 		AccessCount:  5,
 		CreatedAt:   now.Add(-72 * time.Hour).Format(time.RFC3339),
@@ -240,9 +240,9 @@ func TestRetriever_ComputeRerankSignals(t *testing.T) {
 		t.Errorf("expected confidence 0.9, got %f", signals.Confidence)
 	}
 
-	// Type priority for "decision" should be 1.2
-	if math.Abs(signals.Type-1.2) > 1e-6 {
-		t.Errorf("expected type 1.2, got %f", signals.Type)
+	// Type priority for "stable" should be 1.1
+	if math.Abs(signals.Type-1.1) > 1e-6 {
+		t.Errorf("expected type 1.1, got %f", signals.Type)
 	}
 
 	// Recency should be positive (was accessed yesterday)
@@ -283,7 +283,7 @@ func TestRetriever_ApplyReranking_BlendZero(t *testing.T) {
 
 	results := []*ScoredMemory{
 		{
-			Memory:   &store.Memory{ID: "1", Type: "fact", Confidence: 0.5},
+			Memory:   &store.Memory{ID: "1", Type: "stable", Confidence: 0.5},
 			RRFScore: 0.8,
 		},
 	}
@@ -310,7 +310,7 @@ func TestRetriever_Search_WithRelations(t *testing.T) {
 	ctx := context.Background()
 	_, err = ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is a programming language",
 		Source:     "test",
 		Confidence: 0.9,
@@ -361,7 +361,7 @@ func TestRetriever_Search_DisabledTrackAccess(t *testing.T) {
 	ctx := context.Background()
 	memID, err := ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is a programming language",
 		Source:     "test",
 		Confidence: 0.9,
@@ -398,7 +398,7 @@ func TestRetriever_TrackAccess(t *testing.T) {
 	ctx := context.Background()
 	memID, err := ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is a programming language",
 		Source:     "test",
 		Confidence: 0.9,
@@ -435,7 +435,7 @@ func TestRetriever_FormatContext(t *testing.T) {
 	ctx := context.Background()
 	_, err = ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is a programming language",
 		Summary:    "Go overview",
 		Source:     "test",
@@ -499,7 +499,7 @@ func TestRetriever_FormatContext_UTF8Truncation(t *testing.T) {
 	// Add a memory with Chinese characters
 	_, err = ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "这是一个中文测试内容",
 		Source:     "test",
 		Confidence: 0.9,
@@ -545,8 +545,8 @@ func TestNewRetriever_DefensiveCopyTypePriority(t *testing.T) {
 	ms := newTestStore(t)
 
 	customPrio := map[string]float64{
-		"decision": 1.5,
-		"fact":     1.0,
+		"stable":   1.5,
+		"volatile": 1.0,
 	}
 
 	r, err := NewRetriever(RetrieverConfig{
@@ -558,12 +558,12 @@ func TestNewRetriever_DefensiveCopyTypePriority(t *testing.T) {
 	}
 
 	// Mutate the original map
-	customPrio["decision"] = 999.0
+	customPrio["stable"] = 999.0
 
 	// Verify retriever has its own copy — it should use the original values
 	signals := ComputeRerankSignals(&store.Memory{
 		ID:         "test-1",
-		Type:       "decision",
+		Type:       "stable",
 		Confidence: 0.5,
 	}, r.typePriority, time.Now().UTC())
 
@@ -577,14 +577,14 @@ func TestNewRetriever_DefensiveCopyTypePriority(t *testing.T) {
 
 func TestDefaultTypePriority(t *testing.T) {
 	prio := DefaultTypePriority()
-	if prio["decision"] != 1.2 {
-		t.Errorf("expected decision=1.2, got %f", prio["decision"])
+	if prio["stable"] != 1.1 {
+		t.Errorf("expected stable=1.1, got %f", prio["stable"])
 	}
-	if prio["fact"] != 1.0 {
-		t.Errorf("expected fact=1.0, got %f", prio["fact"])
+	if prio["volatile"] != 1.2 {
+		t.Errorf("expected volatile=1.2, got %f", prio["volatile"])
 	}
-	if prio["event"] != 0.9 {
-		t.Errorf("expected event=0.9, got %f", prio["event"])
+	if prio["log"] != 0.7 {
+		t.Errorf("expected log=0.7, got %f", prio["log"])
 	}
 }
 
@@ -603,7 +603,7 @@ func TestRetriever_HybridSearch_EmbedderUnavailableFallsBackToFTS(t *testing.T) 
 	ctx := context.Background()
 	_, err = ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is a programming language",
 		Source:     "test",
 		Confidence: 0.9,
@@ -684,7 +684,7 @@ func TestRetriever_HybridSearch_ExplicitZeroAlpha_PureFTS(t *testing.T) {
 	ctx := context.Background()
 	_, err = ms.Add(ctx, store.AddParams{
 		ID:         "mem-1",
-		Type:       "fact",
+		Type:       "stable",
 		Content:    "Go is a programming language",
 		Source:     "test",
 		Confidence: 0.9,

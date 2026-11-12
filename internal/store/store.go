@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -273,6 +274,13 @@ func (ms *MemoryStore) Add(ctx context.Context, params AddParams) (string, error
 	var validUntil any
 	if params.ValidUntil != "" {
 		validUntil = params.ValidUntil
+	} else {
+		// Auto-compute TTL for new tier types if not explicitly set
+		ttlDays := DefaultTTLForType(params.Type)
+		if ttlDays > 0 {
+			expiry := time.Now().UTC().AddDate(0, 0, ttlDays).Format(time.RFC3339)
+			validUntil = expiry
+		}
 	}
 	var summary any
 	if params.Summary != "" {
@@ -284,7 +292,7 @@ func (ms *MemoryStore) Add(ctx context.Context, params AddParams) (string, error
 	}
 
 	_, err = ms.db.ExecContext(ctx,
-		`INSERT INTO "memories" ("id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "metadata", "embedding") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO "memories" ("id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "metadata", "embedding", "pinned") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,0)`,
 		memID, params.Type, params.Content, summary, string(hintsJSON), source, confidence, now, validUntil, now, now, string(metadataJSON), embedding,
 	)
 	if err != nil {
@@ -308,7 +316,7 @@ func (ms *MemoryStore) Add(ctx context.Context, params AddParams) (string, error
 // If trackAccess is true, increments access_count and updates accessed_at.
 func (ms *MemoryStore) Get(ctx context.Context, id string, trackAccess bool) (*Memory, error) {
 	row := ms.db.QueryRowContext(ctx,
-		`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" WHERE "id" = ?`,
+		`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" WHERE "id" = ?`,
 		id,
 	)
 	m, err := scanMemory(row)
@@ -321,9 +329,11 @@ func (ms *MemoryStore) Get(ctx context.Context, id string, trackAccess bool) (*M
 
 	if trackAccess {
 		now := nowUTC()
+		stableExpiry := time.Now().UTC().AddDate(0, 0, TTLStableDays).Format(time.RFC3339)
+		volatileExpiry := time.Now().UTC().AddDate(0, 0, TTLVolatileDays).Format(time.RFC3339)
 		_, err = ms.db.ExecContext(ctx,
-			`UPDATE "memories" SET "accessed_at" = ?, "access_count" = "access_count" + 1 WHERE "id" = ?`,
-			now, id,
+			`UPDATE "memories" SET "accessed_at" = ?, "valid_until" = CASE WHEN "type" = 'stable' AND "pinned" = 0 THEN ? WHEN "type" = 'volatile' AND "pinned" = 0 THEN ? ELSE "valid_until" END, "access_count" = "access_count" + 1 WHERE "id" = ?`,
+			now, stableExpiry, volatileExpiry, id,
 		)
 		if err != nil {
 			slog.Debug("llmem: store: get: failed to update access count", "error", err)
@@ -350,9 +360,9 @@ func (ms *MemoryStore) GetBatch(ctx context.Context, ids []string, validOnly boo
 		args[i] = id
 	}
 
-	query := fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" WHERE "id" IN (%s)`, ph)
+	query := fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" WHERE "id" IN (%s)`, ph)
 	if validOnly {
-		query += ` AND "valid_until" IS NULL`
+		query += ` AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`
 	}
 
 	rows, err := ms.db.QueryContext(ctx, query, args...)
@@ -519,6 +529,106 @@ func (ms *MemoryStore) Invalidate(ctx context.Context, id string, reason string)
 	return n > 0, nil
 }
 
+// Pin marks a stable memory as pinned, exempting it from TTL-based pruning.
+// Sets pinned=true and valid_until=NULL. Returns false if not found.
+// Returns an error if the memory is not of type "stable".
+func (ms *MemoryStore) Pin(ctx context.Context, id string) (bool, error) {
+	var typ string
+	err := ms.db.QueryRowContext(ctx, `SELECT "type" FROM "memories" WHERE "id" = ?`, id).Scan(&typ)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmtErr("pin: check type: %w", err)
+	}
+	if typ != "stable" {
+		return false, fmtErr("pin: only stable memories can be pinned, got type %q", typ)
+	}
+
+	now := nowUTC()
+	result, err := ms.db.ExecContext(ctx,
+		`UPDATE "memories" SET "pinned" = 1, "valid_until" = NULL, "updated_at" = ? WHERE "id" = ?`,
+		now, id,
+	)
+	if err != nil {
+		return false, fmtErr("pin: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
+// Unpin removes the pinned status from a memory and recomputes its TTL.
+// Sets pinned=false and valid_until = accessed_at + TTL (or created_at + TTL if never accessed).
+// Returns false if not found. Only works on stable memories.
+func (ms *MemoryStore) Unpin(ctx context.Context, id string) (bool, error) {
+	var typ string
+	var accessedAt, createdAt sql.NullString
+	err := ms.db.QueryRowContext(ctx, `SELECT "type", "accessed_at", "created_at" FROM "memories" WHERE "id" = ?`, id).Scan(&typ, &accessedAt, &createdAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return false, nil
+		}
+		return false, fmtErr("unpin: check: %w", err)
+	}
+	if typ != "stable" {
+		return false, fmtErr("unpin: only stable memories can be unpinned, got type %q", typ)
+	}
+
+	// Compute new valid_until from accessed_at (or created_at if never accessed) + TTL
+	baseTime := accessedAt.String
+	if baseTime == "" {
+		baseTime = createdAt.String
+	}
+
+	ttlDays := DefaultTTLForType(typ)
+	var validUntil any
+	if ttlDays > 0 && baseTime != "" {
+		base, parseErr := time.Parse(time.RFC3339, baseTime)
+		if parseErr != nil {
+			slog.Debug("llmem: store: unpin: failed to parse base time, leaving valid_until NULL", "id", id, "error", parseErr)
+		} else {
+			validUntil = base.UTC().AddDate(0, 0, ttlDays).Format(time.RFC3339)
+		}
+	}
+
+	now := nowUTC()
+	result, err := ms.db.ExecContext(ctx,
+		`UPDATE "memories" SET "pinned" = 0, "valid_until" = ?, "updated_at" = ? WHERE "id" = ?`,
+		validUntil, now, id,
+	)
+	if err != nil {
+		return false, fmtErr("unpin: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	return n > 0, nil
+}
+
+// PruneExpired deletes all non-pinned memories where valid_until is in the past.
+// Pinned memories are always preserved. Returns the number of memories deleted.
+func (ms *MemoryStore) PruneExpired(ctx context.Context) (int, error) {
+	now := nowUTC()
+	result, err := ms.db.ExecContext(ctx,
+		`DELETE FROM "memories" WHERE "valid_until" IS NOT NULL AND "valid_until" < ? AND "pinned" = 0`,
+		now,
+	)
+	if err != nil {
+		return 0, fmtErr("prune_expired: %w", err)
+	}
+	n, _ := result.RowsAffected()
+
+	// Clean up vec shadow table for deleted memories (best-effort)
+	if n > 0 && ms.vecAvailable {
+		// The vec shadow table rows are cascaded via the memories table's
+		// DELETE trigger, but the vec shadow table is not a real FK table.
+		// Clean up manually for safety.
+		ms.db.ExecContext(ctx,
+			`DELETE FROM "_vec_memories_vec" WHERE dataset_id = 'memories' AND id NOT IN (SELECT "id" FROM "memories")`,
+		)
+	}
+
+	return int(n), nil
+}
+
 // Delete removes a memory by ID and cascades to its relations.
 // Returns false if not found.
 func (ms *MemoryStore) Delete(ctx context.Context, id string) (bool, error) {
@@ -549,7 +659,6 @@ func (ms *MemoryStore) Search(ctx context.Context, params SearchParams) ([]*Memo
 	}
 	if params.SemanticOnly && !ms.vecAvailable {
 		return nil, fmtErr("search: semantic search requires vector index (store opened with DisableVec=false and sqlite-vec available)")
-		return nil, fmtErr("search: semantic search requires embeddings (store opened with DisableVec=false)")
 	}
 
 	limit := params.Limit
@@ -573,7 +682,7 @@ func (ms *MemoryStore) searchFTS(ctx context.Context, params SearchParams, limit
 	var clauses []string
 	var ftsVals []any
 	if params.ValidOnly {
-		clauses = append(clauses, `m."valid_until" IS NULL`)
+		clauses = append(clauses, `(m."valid_until" IS NULL OR m."valid_until" > datetime('now'))`)
 	}
 	if params.Type != "" {
 		clauses = append(clauses, `m."type" = ?`)
@@ -585,7 +694,7 @@ func (ms *MemoryStore) searchFTS(ctx context.Context, params SearchParams, limit
 	}
 
 	query := fmt.Sprintf(
-		`SELECT m."id", m."type", m."content", m."summary", m."hints", m."source", m."confidence", m."valid_from", m."valid_until", m."created_at", m."updated_at", m."accessed_at", m."access_count", m."metadata", m."embedding" FROM "memories_fts" AS fts JOIN "memories" AS m ON m."rowid" = fts."rowid" WHERE "memories_fts" MATCH ?%s ORDER BY rank DESC LIMIT ? OFFSET ?`,
+		`SELECT m."id", m."type", m."content", m."summary", m."hints", m."source", m."confidence", m."valid_from", m."valid_until", m."created_at", m."updated_at", m."accessed_at", m."access_count", m."metadata", m."embedding", m."pinned" FROM "memories_fts" AS fts JOIN "memories" AS m ON m."rowid" = fts."rowid" WHERE "memories_fts" MATCH ?%s ORDER BY rank DESC LIMIT ? OFFSET ?`,
 		where,
 	)
 	args := append([]any{ftsQuery}, ftsVals...)
@@ -613,7 +722,7 @@ func (ms *MemoryStore) searchNoQuery(ctx context.Context, params SearchParams, l
 	var clauses []string
 	var vals []any
 	if params.ValidOnly {
-		clauses = append(clauses, `"valid_until" IS NULL`)
+		clauses = append(clauses, `("valid_until" IS NULL OR "valid_until" > datetime('now'))`)
 	}
 	if params.Type != "" {
 		clauses = append(clauses, `"type" = ?`)
@@ -625,7 +734,7 @@ func (ms *MemoryStore) searchNoQuery(ctx context.Context, params SearchParams, l
 	}
 
 	query := fmt.Sprintf(
-		`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" WHERE %s ORDER BY "updated_at" DESC LIMIT ? OFFSET ?`,
+		`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" WHERE %s ORDER BY "updated_at" DESC LIMIT ? OFFSET ?`,
 		where,
 	)
 	vals = append(vals, limit, offset)
@@ -651,7 +760,7 @@ func (ms *MemoryStore) fallbackLikeSearch(ctx context.Context, params SearchPara
 	clauses, vals := ms.buildLikeClauses(params.Query, params.Type, params.ValidOnly)
 
 	rows, err := ms.db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" AS m WHERE %s ORDER BY m."updated_at" DESC LIMIT ? OFFSET ?`, clauses),
+		fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" AS m WHERE %s ORDER BY m."updated_at" DESC LIMIT ? OFFSET ?`, clauses),
 		append(vals, limit, offset)...,
 	)
 	if err != nil {
@@ -679,7 +788,7 @@ func (ms *MemoryStore) buildLikeClauses(query, typeFilter string, validOnly bool
 	vals = append(vals, "%"+escaped+"%", "%"+escaped+"%", "%"+escaped+"%")
 
 	if validOnly {
-		clauses = append(clauses, `m."valid_until" IS NULL`)
+		clauses = append(clauses, `(m."valid_until" IS NULL OR m."valid_until" > datetime('now'))`)
 	}
 	if typeFilter != "" {
 		clauses = append(clauses, `m."type" = ?`)
@@ -702,7 +811,7 @@ func (ms *MemoryStore) searchCountFTS(ctx context.Context, params SearchCountPar
 	var clauses []string
 	var ftsVals []any
 	if params.ValidOnly {
-		clauses = append(clauses, `m."valid_until" IS NULL`)
+		clauses = append(clauses, `(m."valid_until" IS NULL OR m."valid_until" > datetime('now'))`)
 	}
 	if params.Type != "" {
 		clauses = append(clauses, `m."type" = ?`)
@@ -739,7 +848,7 @@ func (ms *MemoryStore) searchCountNoQuery(ctx context.Context, params SearchCoun
 	var clauses []string
 	var vals []any
 	if params.ValidOnly {
-		clauses = append(clauses, `"valid_until" IS NULL`)
+		clauses = append(clauses, `("valid_until" IS NULL OR "valid_until" > datetime('now'))`)
 	}
 	if params.Type != "" {
 		clauses = append(clauses, `"type" = ?`)
@@ -827,10 +936,10 @@ func (ms *MemoryStore) searchByEmbeddingVec(ctx context.Context, queryVec []floa
 	ph := placeholders(len(topIDs))
 	var where string
 	if validOnly {
-		where = ` AND "valid_until" IS NULL`
+		where = ` AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`
 	}
 	memRows, err := ms.db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" WHERE "id" IN (%s)%s`, ph, where),
+		fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" WHERE "id" IN (%s)%s`, ph, where),
 		topIDs...,
 	)
 	if err != nil {
@@ -860,7 +969,7 @@ func (ms *MemoryStore) searchByEmbeddingBrute(ctx context.Context, queryVec []fl
 	where := `WHERE "embedding" IS NOT NULL`
 	args := []any{}
 	if validOnly {
-		where += ` AND "valid_until" IS NULL`
+		where += ` AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`
 	}
 	where += ` LIMIT ?`
 	args = append(args, defaultBruteForceMaxRows)
@@ -920,7 +1029,7 @@ func (ms *MemoryStore) searchByEmbeddingBrute(ctx context.Context, queryVec []fl
 	}
 	ph := placeholders(len(topIDs))
 	memRows, err := ms.db.QueryContext(ctx,
-		fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" WHERE "id" IN (%s)`, ph),
+		fmt.Sprintf(`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" WHERE "id" IN (%s)`, ph),
 		topIDs...,
 	)
 	if err != nil {
@@ -963,7 +1072,7 @@ func (ms *MemoryStore) ListAll(ctx context.Context, params ListParams) ([]*Memor
 func (ms *MemoryStore) Count(ctx context.Context, validOnly bool) (int, error) {
 	clause := ""
 	if validOnly {
-		clause = `WHERE "valid_until" IS NULL`
+		clause = `WHERE ("valid_until" IS NULL OR "valid_until" > datetime('now'))`
 	}
 	var count int
 	err := ms.db.QueryRowContext(ctx,
@@ -979,7 +1088,7 @@ func (ms *MemoryStore) Count(ctx context.Context, validOnly bool) (int, error) {
 func (ms *MemoryStore) CountByType(ctx context.Context, validOnly bool) (map[string]int, error) {
 	clause := ""
 	if validOnly {
-		clause = `WHERE "valid_until" IS NULL`
+		clause = `WHERE ("valid_until" IS NULL OR "valid_until" > datetime('now'))`
 	}
 	rows, err := ms.db.QueryContext(ctx,
 		fmt.Sprintf(`SELECT "type", COUNT(*) as cnt FROM "memories" %s GROUP BY "type" ORDER BY cnt DESC`, clause),
@@ -1005,7 +1114,7 @@ func (ms *MemoryStore) CountByType(ctx context.Context, validOnly bool) (map[str
 func (ms *MemoryStore) CountEmbeddings(ctx context.Context) (int, error) {
 	var count int
 	err := ms.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM "memories" WHERE "embedding" IS NOT NULL AND "valid_until" IS NULL`,
+		`SELECT COUNT(*) FROM "memories" WHERE "embedding" IS NOT NULL AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`,
 	).Scan(&count)
 	if err != nil {
 		return 0, fmtErr("count_embeddings: %w", err)
@@ -1182,7 +1291,7 @@ func (ms *MemoryStore) LogExtraction(ctx context.Context, sourceType, sourceID s
 func (ms *MemoryStore) SupersedeBySource(ctx context.Context, sourceType, sourceID string) (int, error) {
 	now := nowUTC()
 	result, err := ms.db.ExecContext(ctx,
-		`UPDATE "memories" SET "valid_until" = ?, "updated_at" = ? WHERE "source" = ? AND "valid_until" IS NULL AND json_extract("metadata", '$.source_id') = ?`,
+		`UPDATE "memories" SET "valid_until" = ?, "updated_at" = ? WHERE "source" = ? AND ("valid_until" IS NULL OR "valid_until" > datetime('now')) AND json_extract("metadata", '$.source_id') = ?`,
 		now, now, sourceType, sourceID,
 	)
 	if err != nil {
@@ -1251,7 +1360,7 @@ func (ms *MemoryStore) ConsolidateDuplicates(ctx context.Context, threshold floa
 	}
 
 	rows, err := ms.db.QueryContext(ctx,
-		`SELECT "id", "content", "embedding" FROM "memories" WHERE "embedding" IS NOT NULL AND "valid_until" IS NULL LIMIT ?`,
+		`SELECT "id", "content", "embedding" FROM "memories" WHERE "embedding" IS NOT NULL AND ("valid_until" IS NULL OR "valid_until" > datetime('now')) LIMIT ?`,
 		limit,
 	)
 	if err != nil {
@@ -1323,11 +1432,11 @@ func (ms *MemoryStore) ExportAll(ctx context.Context, limit *int) ([]*Memory, er
 	var err error
 	if effectiveLimit == 0 {
 		rows, err = ms.db.QueryContext(ctx,
-			`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" ORDER BY "created_at"`,
+			`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" ORDER BY "created_at"`,
 		)
 	} else {
 		rows, err = ms.db.QueryContext(ctx,
-			`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding" FROM "memories" ORDER BY "created_at" LIMIT ?`,
+			`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" ORDER BY "created_at" LIMIT ?`,
 			effectiveLimit,
 		)
 	}
@@ -1438,20 +1547,23 @@ func (ms *MemoryStore) Touch(ctx context.Context, id string) (bool, error) {
 	return true, nil
 }
 
-// TouchBatch increments access_count and updates accessed_at for multiple memories.
-// Returns the number of rows affected.
+// TouchBatch increments access_count, updates accessed_at, and resets TTL for
+// stable and volatile (non-pinned) memories. Log memories get access tracking
+// but NO TTL reset. Returns the number of rows affected.
 func (ms *MemoryStore) TouchBatch(ctx context.Context, ids []string) (int, error) {
 	if len(ids) == 0 {
 		return 0, nil
 	}
 	now := nowUTC()
+	stableExpiry := time.Now().UTC().AddDate(0, 0, TTLStableDays).Format(time.RFC3339)
+	volatileExpiry := time.Now().UTC().AddDate(0, 0, TTLVolatileDays).Format(time.RFC3339)
 	ph := placeholders(len(ids))
-	args := []any{now}
+	args := []any{now, stableExpiry, volatileExpiry}
 	for _, id := range ids {
 		args = append(args, id)
 	}
 	result, err := ms.db.ExecContext(ctx,
-		fmt.Sprintf(`UPDATE "memories" SET "accessed_at" = ?, "access_count" = "access_count" + 1 WHERE "id" IN (%s)`, ph),
+		fmt.Sprintf(`UPDATE "memories" SET "accessed_at" = ?, "valid_until" = CASE WHEN "type" = 'stable' AND "pinned" = 0 THEN ? WHEN "type" = 'volatile' AND "pinned" = 0 THEN ? ELSE "valid_until" END, "access_count" = "access_count" + 1 WHERE "id" IN (%s)`, ph),
 		args...,
 	)
 	if err != nil {
@@ -1473,12 +1585,12 @@ func (ms *MemoryStore) GetEmbeddingsWithTypes(ctx context.Context, limit int) ([
 	var err error
 	if effectiveLimit > 0 {
 		rows, err = ms.db.QueryContext(ctx,
-			`SELECT "embedding", "type" FROM "memories" WHERE "embedding" IS NOT NULL AND "valid_until" IS NULL LIMIT ?`,
+			`SELECT "embedding", "type" FROM "memories" WHERE "embedding" IS NOT NULL AND ("valid_until" IS NULL OR "valid_until" > datetime('now')) LIMIT ?`,
 			effectiveLimit,
 		)
 	} else {
 		rows, err = ms.db.QueryContext(ctx,
-			`SELECT "embedding", "type" FROM "memories" WHERE "embedding" IS NOT NULL AND "valid_until" IS NULL`,
+			`SELECT "embedding", "type" FROM "memories" WHERE "embedding" IS NOT NULL AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`,
 		)
 	}
 	if err != nil {
@@ -1669,12 +1781,12 @@ func (ms *MemoryStore) initVecTable() error {
 	// Populate shadow table from existing embeddings in memories table.
 	// This syncs any embeddings that were added before vec was initialized.
 	var embCount int
-	if err := ms.db.QueryRow(`SELECT count(*) FROM "memories" WHERE "embedding" IS NOT NULL AND "valid_until" IS NULL`).Scan(&embCount); err != nil {
+	if err := ms.db.QueryRow(`SELECT count(*) FROM "memories" WHERE "embedding" IS NOT NULL AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`).Scan(&embCount); err != nil {
 		return fmtErr("init_vec: count embeddings: %w", err)
 	}
 
 	if embCount > 0 {
-		rows, err := ms.db.Query(`SELECT "id", "content", "metadata", "embedding" FROM "memories" WHERE "embedding" IS NOT NULL AND "valid_until" IS NULL`)
+		rows, err := ms.db.Query(`SELECT "id", "content", "metadata", "embedding" FROM "memories" WHERE "embedding" IS NOT NULL AND ("valid_until" IS NULL OR "valid_until" > datetime('now'))`)
 		if err != nil {
 			return fmtErr("init_vec: fetch embeddings: %w", err)
 		}
@@ -1729,11 +1841,12 @@ func scanMemoryFields(scan scanFunc) (*Memory, error) {
 	var hintsJSON, metadataJSON string
 	var summary, validUntil, accessedAt sql.NullString
 	var embedding []byte
+	var pinned int
 
 	err := scan(
 		&m.ID, &m.Type, &m.Content, &summary, &hintsJSON, &m.Source, &m.Confidence,
 		&m.ValidFrom, &validUntil, &m.CreatedAt, &m.UpdatedAt, &accessedAt,
-		&m.AccessCount, &metadataJSON, &embedding,
+		&m.AccessCount, &metadataJSON, &embedding, &pinned,
 	)
 	if err != nil {
 		return nil, err
@@ -1743,6 +1856,7 @@ func scanMemoryFields(scan scanFunc) (*Memory, error) {
 	m.ValidUntil = validUntil.String
 	m.AccessedAt = accessedAt.String
 	m.Embedding = embedding
+	m.Pinned = pinned != 0
 
 	if err := json.Unmarshal([]byte(hintsJSON), &m.Hints); err != nil {
 		m.Hints = []string{}

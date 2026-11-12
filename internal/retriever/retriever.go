@@ -32,13 +32,9 @@ const (
 // after initialization and is only read via DefaultTypePriority() which
 // returns defensive copies.
 var defaultTypePriorityMap = map[string]float64{
-	"decision":      1.2,
-	"preference":    1.1,
-	"procedure":     1.1,
-	"fact":          1.0,
-	"project_state": 1.0,
-	"event":         0.9,
-	"conversation":  0.7,
+	"stable":   1.1,
+	"volatile": 1.2,
+	"log":      0.7,
 }
 
 // RerankSignals holds per-memory reranking signal values.

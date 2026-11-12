@@ -9,38 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/MichielDean/LLMem/internal/dream"
 	"github.com/MichielDean/LLMem/internal/paths"
 	"github.com/MichielDean/LLMem/internal/urlvalidate"
 	"gopkg.in/yaml.v3"
 )
 
-// DreamConfig holds dream consolidation settings.
-// Only fields that are wired through to DreamerConfig are included.
-// Removed dead fields: MinScore, MinRecallCount, MinUniqueQueries,
-// BoostOnPromote, MergeModel, CalibrationEnabled,
-// CalibrationLookbackDays, Enabled, Schedule — these were defined in
-// config but never read by any method, creating a contract violation.
-// Enabled and Schedule control systemd timer behaviour, not dream
-// algorithm parameters; they are handled by internal/systemd directly.
-type DreamConfig struct {
-	SimilarityThreshold float64 `yaml:"similarity_threshold"`
-	DecayRate            float64 `yaml:"decay_rate"`
-	DecayIntervalDays    int     `yaml:"decay_interval_days"`
-	DecayFloor           float64 `yaml:"decay_floor"`
-	ConfidenceFloor      float64 `yaml:"confidence_floor"`
-	BoostThreshold       int     `yaml:"boost_threshold"`
-	BoostAmount          float64 `yaml:"boost_amount"`
-	DiaryPath            string  `yaml:"diary_path"`
-	ReportPath           string  `yaml:"report_path"`
-	AutoLinkThreshold    float64 `yaml:"auto_link_threshold"`
-	StaleProcedureDays   int     `yaml:"stale_procedure_days"`
-}
-
 // Config holds the full LLMem configuration.
 type Config struct {
 	Memory MemoryConfig `yaml:"memory"`
-	Dream  DreamConfig   `yaml:"dream"`
 }
 
 // MemoryConfig holds memory store settings.
@@ -70,19 +46,6 @@ func DefaultConfig() Config {
 			ContextBudget: 4000,
 			AutoExtract:   true,
 			MaxFileSize:   10 * 1024 * 1024,
-		},
-		Dream: DreamConfig{
-			SimilarityThreshold: 0.92,
-			DecayRate:           0.05,
-			DecayIntervalDays:   30,
-			DecayFloor:          0.3,
-			ConfidenceFloor:     0.3,
-			BoostThreshold:      5,
-			BoostAmount:          0.05,
-			DiaryPath:            paths.GetDreamDiaryPath(),
-			ReportPath:           paths.GetDreamReportPath(),
-			AutoLinkThreshold:    0.85,
-			StaleProcedureDays:  30,
 		},
 	}
 }
@@ -137,32 +100,6 @@ func (c *Config) OllamaURL() (string, error) {
 		return "", fmtErr("invalid Ollama URL: %w", err)
 	}
 	return validated, nil
-}
-
-// DreamerConfig returns a dream.DreamerConfig populated from the config.
-// Maps DreamConfig fields to their corresponding DreamerConfig fields.
-// Store must be set by the caller before passing to dream.NewDreamer.
-func (c *Config) DreamerConfig() dream.DreamerConfig {
-	return dream.DreamerConfig{
-		SimilarityThreshold:  c.Dream.SimilarityThreshold,
-		DecayRate:            c.Dream.DecayRate,
-		DecayIntervalDays:    c.Dream.DecayIntervalDays,
-		DecayFloor:           c.Dream.DecayFloor,
-		ConfidenceFloor:      c.Dream.ConfidenceFloor,
-		BoostThreshold:       c.Dream.BoostThreshold,
-		BoostAmount:          c.Dream.BoostAmount,
-		AutoLinkThreshold:    c.Dream.AutoLinkThreshold,
-		StaleProcedureDays:  c.Dream.StaleProcedureDays,
-		DiaryPath:            c.Dream.DiaryPath,
-		ReportPath:           c.Dream.ReportPath,
-	}
-}
-
-// DreamConfigResolved returns the fully-resolved dream configuration.
-// Deprecated: use DreamerConfig() which returns a dream.DreamerConfig
-// wired to the actual Dreamer implementation.
-func (c *Config) DreamConfigResolved() DreamConfig {
-	return c.Dream
 }
 
 // WriteConfigYAML writes config as YAML to the given path with 0600 permissions.
