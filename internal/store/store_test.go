@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -149,6 +150,9 @@ func TestMemoryStore_Add_UnregisteredType(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error for unregistered type")
+	}
+	if !errors.Is(err, ErrUnregisteredType) {
+		t.Errorf("expected errors.Is(err, ErrUnregisteredType), got: %v", err)
 	}
 }
 
@@ -1065,10 +1069,10 @@ func TestRegisterMemoryType_InvalidName(t *testing.T) {
 	ms := newTestStore(t)
 
 	tests := []string{
-		"",                // empty
-		"123abc",         // starts with number
-		"ABC_TYPE",        // uppercase
-		"my-type",         // hyphen
+		"",                      // empty
+		"123abc",                // starts with number
+		"ABC_TYPE",              // uppercase
+		"my-type",               // hyphen
 		strings.Repeat("a", 65), // too long
 	}
 

@@ -167,10 +167,10 @@ go test ./...
 | SQLite driver | Built-in `sqlite3` | `modernc.org/sqlite` (pure Go, no CGo) |
 | Vector search | `sqlite-vec` Python package | `vec0` virtual table (pure Go via modernc) |
 | Migrations | Manual numbered SQL files | `pressly/goose` with embedded SQL files |
-| CLI | Full-featured (24 commands) | Core commands (17 commands) |
+| CLI | Full-featured (24 commands) | Core commands (18 commands, including `extract`) |
 | Embeddings/Providers | Ollama, OpenAI, Anthropic, local | Ollama (`/api/generate` and `/api/embeddings`) |
 | Reranking | RRF + multi-signal | FTS5-only (hybrid coming) |
-| Session hooks | Full lifecycle | Full lifecycle (Go implementation) |
+| Session hooks | Full lifecycle (Python API via session adapters) | Python-only; Go CLI provides manual `llmem extract` |
 | Dream cycle | Full (light, deep, REM) | Full (light, deep, REM) |
 
 The Go `MemoryStore` shares the **exact same database schema** as Python. You can use them interchangeably — a database created by Python is readable by Go, and vice versa.

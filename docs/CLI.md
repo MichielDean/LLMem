@@ -25,8 +25,9 @@ Commands:
   init                Initialize the llmem memory system
   metrics             Report embedding quality metrics
   dream               Run the dream consolidation cycle
+  extract             Extract memories from text using the configured Ollama extraction model
 
-```
+ ```
 
 **Python-only commands** (not yet in the Go CLI): `register-type`, `types`, `note`, `inbox`, `consolidate`, `embed`, `learn` (codebase indexing), `suggest-categories`.
 
@@ -146,6 +147,28 @@ Flags:
 All dream configuration (thresholds, model, schedule, etc.) is read from the `dream:` section of `config.yaml` (see [Configuration](../docs/CONFIGURATION.md)).
 
 Output is printed to stdout. On `--report` path validation errors, the error message is printed to stderr.
+
+### `llmem extract`
+
+```bash
+llmem extract (--text TEXT | --file PATH) [--dry-run]
+```
+
+Extract candidate memories from text using the configured Ollama extraction model (`memory.extract_model` in `config.yaml`, with `memory.ollama_url` as the Ollama base URL) and store them.
+
+Flags:
+
+- `--text TEXT`: Text to extract memories from.
+- `--file PATH`: Read the text from a file instead (mutually exclusive with `--text`). Paths in protected system directories (e.g. `/etc`, `/bin`, `/usr/bin`) are blocked, and files larger than 10 MiB are rejected.
+- `--dry-run`: Extract and print candidate memories without storing anything.
+
+Behavior:
+
+- Exactly one of `--text` or `--file` is required; passing both (or neither) is an error.
+- Before running, the command checks (with a 5-second timeout) whether the extraction model is available on the configured Ollama server. If it is unavailable, a warning is logged and the command exits without storing anything.
+- Each extracted item is stored with `source: extract`. Items missing a `type` or `content` are skipped, and types not registered via `RegisterMemoryType` (Python CLI `register-type`) are skipped and logged.
+- When `memory.embed_model` is configured, stored memories also receive embeddings; if embedding fails, the memory is stored without one.
+- Output uses the same format as `llmem list` (human-readable, or JSON with the global `--json` flag).
 
 > **Python-only commands:** The Python CLI includes additional commands not yet in the Go CLI: `register-type`, `types`, `note`, `inbox`, `consolidate`, `embed` (full embedding quality metrics), `learn` (codebase indexing), and `suggest-categories`.
 
