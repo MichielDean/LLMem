@@ -2627,3 +2627,65 @@ func TestMemoryStore_Get_TrackAccessResetsTTL(t *testing.T) {
 		t.Errorf("expected TTL to be reset after Get(trackAccess=true), new=%v initial=%v", newExpiry, initialExpiry)
 	}
 }
+
+// ═══════════════════════════════════════════════════════════
+// Learning pipeline: auto-pin via extract, ListPinned, UpdateMetadata
+// used by the nightly curator
+// ═══════════════════════════════════════════════════════════
+
+func TestMemoryStore_ListPinned(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id1, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "pinned one"})
+	ms.Pin(ctx, id1)
+	id2, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "pinned two"})
+	ms.Pin(ctx, id2)
+	unpinned, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "not pinned"})
+
+	pins, err := ms.ListPinned(ctx)
+	if err != nil {
+		t.Fatalf("ListPinned: %v", err)
+	}
+	if len(pins) != 2 {
+		t.Fatalf("expected 2 pinned, got %d", len(pins))
+	}
+	for _, p := range pins {
+		if p.ID == unpinned {
+			t.Errorf("unpinned memory leaked into ListPinned")
+		}
+		if !p.Pinned {
+			t.Errorf("ListPinned result not marked pinned: %s", p.ID)
+		}
+	}
+	if pins[0].ID != id1 || pins[1].ID != id2 {
+		t.Errorf("expected oldest-first order: %s, %s", pins[0].ID, pins[1].ID)
+	}
+}
+
+func TestMemoryStore_UpdateMetadata(t *testing.T) {
+	ms := newTestStore(t)
+	ctx := context.Background()
+
+	id, _ := ms.Add(ctx, AddParams{Type: "stable", Content: "meta test", Metadata: map[string]any{"src": "user"}})
+
+	if err := ms.UpdateMetadata(ctx, id, map[string]any{"curate_runs": float64(1)}); err != nil {
+		t.Fatalf("UpdateMetadata: %v", err)
+	}
+	m, err := ms.Get(ctx, id, false)
+	if err != nil || m == nil {
+		t.Fatalf("Get after UpdateMetadata: %v", err)
+	}
+	if m.Metadata["src"] != "user" {
+		t.Errorf("existing metadata lost: %v", m.Metadata)
+	}
+	if _, ok := m.Metadata["curate_runs"]; !ok {
+		t.Errorf("new metadata key missing: %v", m.Metadata)
+	}
+
+	// error on missing memory
+	if err := ms.UpdateMetadata(ctx, "nope", map[string]any{"a": 1}); err == nil {
+		t.Error("expected error updating metadata of non-existent memory")
+	}
+}
+
