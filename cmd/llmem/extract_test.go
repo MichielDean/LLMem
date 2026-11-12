@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -215,7 +216,7 @@ func TestExtractCmd_ArgValidation(t *testing.T) {
 		wantPart string
 	}{
 		{"BothFlags", "text", "file", "mutually exclusive"},
-		{"OnlyFile", "", "/tmp/opencode/nonexistent-file.txt", "read file"},
+		{"OnlyFile", "", "/tmp/opencode/nonexistent-file.txt", "stat file"},
 		{"NoFlags", "", "", "exactly one of --text or --file is required"},
 	}
 	for _, tc := range cases {
@@ -274,19 +275,62 @@ func TestPrintMemoryOutput_JSON(t *testing.T) {
 	}
 }
 
-func TestPrintMemoryOutput_MarshalErrorPropagated(t *testing.T) {
+func TestExtractCmd_StatFileTooLarge_RejectsBeforeRead(t *testing.T) {
+	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "config.yaml"), []byte("memory: {}\n"), 0600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	t.Setenv("LMEM_HOME", home)
+	t.Cleanup(func() { dbPath = "" })
+	dbPath = filepath.Join(home, "memory.db")
+
+	// Sparse file: 10 MiB + 1 byte of logical size without allocating disk.
+	bigFile := filepath.Join(home, "big.txt")
+	f, err := os.Create(bigFile)
+	if err != nil {
+		t.Fatalf("create big file: %v", err)
+	}
+	if err := f.Truncate(10*1024*1024 + 1); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	f.Close()
+
+	// Reading the file succeeds trivially on a sparse file, so reaching the
+	// "file too large" error proves the size was checked before ReadFile.
+	// A full ReadFile of 10MiB+1 would also pass, so also assert the exact
+	// error text to prove the stat-based path (distinct message: "file too
+	// large", not a generic read failure).
+	cmd := newExtractCmdForTest("", bigFile, false)
+	err = cmd.RunE(cmd, nil)
+	if err == nil {
+		t.Fatalf("expected file-too-large error, got nil")
+	}
+	if !strings.Contains(err.Error(), "file too large (max 10 MiB)") {
+		t.Errorf("expected size rejection before read, got: %v", err)
+	}
+}
+
+func TestPrintMemoryOutput_JSONMarshalErrorPropagated(t *testing.T) {
 	oldJSON := jsonOutput
 	defer func() { jsonOutput = oldJSON }()
 	jsonOutput = true
 
-	// A Memory containing an unsupported Go value would fail MarshalIndent,
-	// but Memory fields are all JSON-safe; instead verify the error path by
-	// checking the signature returns error (compiler-checked above) and that
-	// human mode does not error.
-	jsonOutput = false
-	m := &store.Memory{ID: "abc", Type: "fact", Content: "hello", Confidence: 0.8}
-	if err := printMemoryOutput(m); err != nil {
-		t.Errorf("human mode expected nil error, got %v", err)
+	// Metadata is map[string]any; a channel value is not JSON-marshalable,
+	// so json.Encoder.Encode must return an error that printMemoryOutput
+	// propagates rather than swallowing.
+	m := &store.Memory{
+		ID:       "abc",
+		Type:     "fact",
+		Content:  "hello",
+		Metadata: map[string]any{"bad": make(chan int)},
+	}
+	err := printMemoryOutput(m)
+	if err == nil {
+		t.Fatal("expected propagated JSON marshal error, got nil")
+	}
+	var typeErr *json.UnsupportedTypeError
+	if !errors.As(err, &typeErr) {
+		t.Errorf("expected *json.UnsupportedTypeError, got: %v", err)
 	}
 }
 
@@ -307,4 +351,3 @@ func TestExtractCmd_DBFlagIsolation(t *testing.T) {
 		t.Errorf("dbPath = %q, want %q", got, want)
 	}
 }
-

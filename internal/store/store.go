@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -21,11 +22,16 @@ import (
 const (
 	defaultVecDimensions     = 768
 	defaultBruteForceMaxRows = 10000
-	defaultConfidence         = 0.8
-	defaultExportLimit        = 10000
-	maxIDLength               = 256
-	maxEmbeddingBytes         = 1024 * 1024 // 1 MB per embedding vector
+	defaultConfidence        = 0.8
+	defaultExportLimit       = 10000
+	maxIDLength              = 256
+	maxEmbeddingBytes        = 1024 * 1024 // 1 MB per embedding vector
 )
+
+// ErrUnregisteredType indicates an Add was attempted with a memory type not
+// registered via RegisterMemoryType. Use errors.Is to detect it; the returned
+// error additionally names the offending type.
+var ErrUnregisteredType = errors.New("unregistered type")
 
 // MemoryStore is a SQLite-backed memory store with FTS5 full-text search
 // and vector search via sqlite-vec.
@@ -213,7 +219,7 @@ func (ms *MemoryStore) Add(ctx context.Context, params AddParams) (string, error
 	_, typeOK := ms.registeredTypes[params.Type]
 	ms.mu.RUnlock()
 	if !typeOK {
-		return "", fmtErr("add: unregistered type %q: register it with RegisterMemoryType first", params.Type)
+		return "", fmtErr("add: %w %q: register it with RegisterMemoryType first", ErrUnregisteredType, params.Type)
 	}
 
 	// Validate embedding size limit (DoS protection)
@@ -787,8 +793,8 @@ func (ms *MemoryStore) searchByEmbeddingVec(ctx context.Context, queryVec []floa
 	defer rows.Close()
 
 	type vecResult struct {
-		id     string
-		score  float64
+		id    string
+		score float64
 	}
 	var results []vecResult
 	for rows.Next() {
@@ -1542,11 +1548,11 @@ func (ms *MemoryStore) rebuildFTSIfEmpty() error {
 // the memories_vec virtual table is registered with the vec0 module. Since vec0
 // isn't available in the Go version, DROP TABLE on that virtual table returns
 // "no such module: vec0". We work around this by:
-// 1. Dropping the auxiliary chunk/rowid/info tables (these are real tables, not virtual)
-// 2. Dropping the triggers (they reference vec0, causing "no such module" errors)
-// 3. Trying DROP TABLE on the vtab; if it fails (missing module), using
-//    PRAGMA writable_schema to delete the stale entry from sqlite_master
-// 4. Dropping any viant shadow/storage tables from prior runs
+//  1. Dropping the auxiliary chunk/rowid/info tables (these are real tables, not virtual)
+//  2. Dropping the triggers (they reference vec0, causing "no such module" errors)
+//  3. Trying DROP TABLE on the vtab; if it fails (missing module), using
+//     PRAGMA writable_schema to delete the stale entry from sqlite_master
+//  4. Dropping any viant shadow/storage tables from prior runs
 func dropLegacyVec0Objects(db *sql.DB) error {
 	// Drop triggers first (they reference the vec0 virtual table)
 	for _, name := range []string{"memories_vec_insert", "memories_vec_update", "memories_vec_update_null", "memories_vec_delete"} {
@@ -1712,8 +1718,6 @@ func chmodDBFiles(dbPath string) error {
 	}
 	return nil
 }
-
-
 
 // scanFunc is a function type that scans row columns into dest pointers.
 type scanFunc func(dest ...any) error

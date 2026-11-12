@@ -3,13 +3,13 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
-		"path/filepath"
-		"strings"
-		"time"
+	"path/filepath"
+	"time"
 
 	"github.com/MichielDean/LLMem/internal/config"
 	"github.com/MichielDean/LLMem/internal/dream"
@@ -22,7 +22,7 @@ import (
 
 var (
 	dbPath     string
-	jsonOutput  bool
+	jsonOutput bool
 )
 
 func main() {
@@ -88,8 +88,11 @@ func openStore() (*store.MemoryStore, error) {
 	return ms, nil
 }
 
-// httpClient is an optional pre-configured HTTP client for test injection
-// (httptest.NewServer). When nil, Ollama URLs are validated via urlvalidate.
+// extractCmd builds the "llmem extract" subcommand, which extracts candidate
+// memories from text (or a file) using the configured Ollama extraction model
+// and stores them. httpClient is an optional pre-configured HTTP client for
+// test injection (httptest.NewServer). When nil, Ollama URLs are validated
+// via urlvalidate.
 func extractCmd(httpClient *http.Client) *cobra.Command {
 	var (
 		textVal   string
@@ -117,12 +120,16 @@ func extractCmd(httpClient *http.Client) *cobra.Command {
 				if paths.IsBlockedPath(resolvedFile) {
 					return fmt.Errorf("llmem: extract: file path targets a blocked system directory: %s", resolvedFile)
 				}
+				info, err := os.Stat(resolvedFile)
+				if err != nil {
+					return fmt.Errorf("llmem: extract: stat file: %w", err)
+				}
+				if info.Size() > 10*1024*1024 {
+					return fmt.Errorf("llmem: extract: file too large (max 10 MiB): %s", resolvedFile)
+				}
 				data, err := os.ReadFile(resolvedFile)
 				if err != nil {
 					return fmt.Errorf("llmem: extract: read file: %w", err)
-				}
-				if len(data) > 10*1024*1024 {
-					return fmt.Errorf("llmem: extract: file too large (max 10 MiB): %s", resolvedFile)
 				}
 				source = string(data)
 			}
@@ -177,7 +184,8 @@ func extractCmd(httpClient *http.Client) *cobra.Command {
 				memType, _ := item["type"].(string)
 				content, _ := item["content"].(string)
 				if content == "" || memType == "" {
-					slog.Debug("llmem: extract: skipping memory with unregistered type", "type", memType)
+					slog.Debug("llmem: extract: skipping extracted item with missing type or content",
+						"type", memType, "has_content", content != "")
 					continue
 				}
 				confidence, _ := item["confidence"].(float64)
@@ -209,7 +217,7 @@ func extractCmd(httpClient *http.Client) *cobra.Command {
 					Embedding:  embedding,
 				})
 				if addErr != nil {
-					if strings.Contains(addErr.Error(), "unregistered type") {
+					if errors.Is(addErr, store.ErrUnregisteredType) {
 						slog.Debug("llmem: extract: skipping memory with unregistered type", "type", memType)
 						continue
 					}
@@ -248,14 +256,14 @@ func printMemoryOutput(m *store.Memory) error {
 
 func addCmd() *cobra.Command {
 	var (
-		typeVal      string
-		contentVal   string
-		summaryVal   string
-		sourceVal    string
+		typeVal       string
+		contentVal    string
+		summaryVal    string
+		sourceVal     string
 		confidenceVal float64
 		validUntilVal string
-		metadataVal  string
-		fileVal      string
+		metadataVal   string
+		fileVal       string
 	)
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -350,10 +358,10 @@ func getCmd() *cobra.Command {
 
 func searchCmd() *cobra.Command {
 	var (
-		typeVal    string
-		limitVal   int
-		validOnly  bool
-		ftsOnly    bool
+		typeVal      string
+		limitVal     int
+		validOnly    bool
+		ftsOnly      bool
 		semanticOnly bool
 	)
 	cmd := &cobra.Command{
@@ -405,9 +413,9 @@ func searchCmd() *cobra.Command {
 
 func listCmd() *cobra.Command {
 	var (
-		typeVal   string
-		limitVal  int
-		allVal    bool
+		typeVal  string
+		limitVal int
+		allVal   bool
 	)
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -734,7 +742,7 @@ func initCmd() *cobra.Command {
 			configPath := paths.GetConfigPath()
 			defaultCfg := map[string]any{
 				"memory": map[string]any{
-					"ollama_url": defaultIfEmpty(ollamaURLVal, "http://localhost:11434"),
+					"ollama_url":  defaultIfEmpty(ollamaURLVal, "http://localhost:11434"),
 					"embed_model": "nomic-embed-text",
 				},
 			}
@@ -791,10 +799,10 @@ func metricsCmd() *cobra.Command {
 
 func dreamCmd() *cobra.Command {
 	var (
-		applyVal   bool
-		dryRunVal  bool
-		phaseVal   string
-		reportVal  string
+		applyVal  bool
+		dryRunVal bool
+		phaseVal  string
+		reportVal string
 	)
 	cmd := &cobra.Command{
 		Use:   "dream",
