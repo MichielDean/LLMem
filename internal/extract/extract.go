@@ -23,9 +23,14 @@ const (
 var extractionPrompt = `You are a memory extraction system. Extract key memories from the text below.
 
 Return a JSON array of objects with these fields:
-- type: one of "fact", "decision", "preference", "event", "project_state", "procedure", "conversation"
+- type: one of "stable", "volatile", "log"
 - content: a clear, specific statement (not vague)
 - confidence: 0.0 to 1.0 (how certain this is a lasting memory)
+
+Type usage:
+- stable: durable knowledge (decisions, procedures, preferences, non-obvious facts)
+- volatile: current project state, active work, blockers (short-lived)
+- log: audit records (applications submitted, builds, actions taken)
 
 If no memories are worth extracting, return an empty array [].
 

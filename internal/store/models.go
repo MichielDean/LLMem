@@ -19,6 +19,7 @@ type Memory struct {
 	AccessCount int
 	Metadata    map[string]any
 	Embedding   []byte
+	Pinned      bool
 }
 
 // Relation represents a relationship between two memories.
@@ -145,18 +146,52 @@ func ValidRelationTypes() []string {
 	return []string{"supersedes", "related_to", "derived_from"}
 }
 
-// DefaultRegisteredTypes returns the 7 default memory types.
+// DefaultRegisteredTypes returns the three memory tier types.
+// The legacy 7 types have been removed in the contract phase.
 // Returns a new slice each time (defensive copy).
-// Must match the types registered in migration 003_register_default_types.sql.
+// Must match the types registered in migration 009.
 func DefaultRegisteredTypes() []string {
 	return []string{
-		"fact",
-		"decision",
-		"preference",
-		"event",
-		"project_state",
-		"procedure",
-		"conversation",
+		"stable",
+		"volatile",
+		"log",
+	}
+}
+
+// NewTierTypes returns the three new memory tier types.
+func NewTierTypes() []string {
+	return []string{"stable", "volatile", "log"}
+}
+
+// IsNewTierType returns true if the given type is one of the three new tiers.
+func IsNewTierType(typ string) bool {
+	for _, t := range NewTierTypes() {
+		if t == typ {
+			return true
+		}
+	}
+	return false
+}
+
+// TTL constants for the new tier types.
+const (
+	TTLStableDays   = 90
+	TTLVolatileDays = 14
+	TTLLLogDays     = 90
+)
+
+// DefaultTTLForType returns the default TTL in days for a given memory type.
+// Returns 0 for legacy types (no auto-TTL) and for unrecognized types.
+func DefaultTTLForType(typ string) int {
+	switch typ {
+	case "stable":
+		return TTLStableDays
+	case "volatile":
+		return TTLVolatileDays
+	case "log":
+		return TTLLLogDays
+	default:
+		return 0
 	}
 }
 

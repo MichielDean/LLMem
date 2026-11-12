@@ -1,9 +1,0 @@
-[Unit]
-Description=LLMem Dream Consolidation Timer
-
-[Timer]
-OnCalendar={{.DreamSchedule}}
-Persistent=true
-
-[Install]
-WantedBy=timers.target

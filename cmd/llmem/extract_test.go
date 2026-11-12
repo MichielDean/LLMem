@@ -69,7 +69,7 @@ func newExtractCmdWithClientForTest(textVal, fileVal string, dryRunVal bool, htt
 }
 
 func TestExtractCmd_ExtractionStored(t *testing.T) {
-	extraction := `[{"type":"fact","content":"Go is statically typed","confidence":0.9},{"type":"nonsense","content":"should be skipped","confidence":0.5}]`
+	extraction := `[{"type":"stable","content":"Go is statically typed","confidence":0.9},{"type":"nonsense","content":"should be skipped","confidence":0.5}]`
 	server, _ := setupExtractTest(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/generate" {
 			json.NewEncoder(w).Encode(map[string]string{"response": extraction})
@@ -112,18 +112,18 @@ func TestExtractCmd_ExtractionStored(t *testing.T) {
 		t.Fatalf("Count: %v", err)
 	}
 	if total != 1 {
-		t.Fatalf("expected 1 stored memory (fact), got %d", total)
+		t.Fatalf("expected 1 stored memory (stable), got %d", total)
 	}
 
 	results, err := ms.Search(context.Background(), store.SearchParams{Query: "Go is statically typed", Limit: 10})
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
-	if len(results) != 1 || results[0].Type != "fact" {
+	if len(results) != 1 || results[0].Type != "stable" {
 		for _, m := range results {
 			t.Logf("found: id=%s type=%s content=%s", m.ID, m.Type, m.Content)
 		}
-		t.Fatalf("expected stored fact memory, got %d results", len(results))
+		t.Fatalf("expected stored stable memory, got %d results", len(results))
 	}
 
 	if !strings.Contains(output, "Go is statically typed") {

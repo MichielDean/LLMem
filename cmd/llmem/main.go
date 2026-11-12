@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/MichielDean/LLMem/internal/config"
-	"github.com/MichielDean/LLMem/internal/dream"
 	"github.com/MichielDean/LLMem/internal/embed"
 	"github.com/MichielDean/LLMem/internal/extract"
 	"github.com/MichielDean/LLMem/internal/paths"
@@ -40,17 +39,19 @@ func main() {
 		getCmd(),
 		searchCmd(),
 		listCmd(),
-		statsCmd(),
 		updateCmd(),
-		invalidateCmd(),
 		deleteCmd(),
 		exportCmd(),
 		importCmd(),
 		initCmd(),
 		metricsCmd(),
-		dreamCmd(),
 
-		extractCmd(nil),
+		pinCmd(),
+		unpinCmd(),
+		briefCmd(),
+		amendCmd(),
+		migrateTypesCmd(),
+
 		backfillEmbeddingsCmd(),
 	)
 
@@ -316,7 +317,7 @@ func addCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&typeVal, "type", "fact", "Memory type")
+	cmd.Flags().StringVar(&typeVal, "type", "stable", "Memory type")
 	cmd.Flags().StringVar(&contentVal, "content", "", "Memory content")
 	cmd.Flags().StringVar(&summaryVal, "summary", "", "Memory summary")
 	cmd.Flags().StringVar(&sourceVal, "source", "manual", "Memory source")
@@ -459,52 +460,6 @@ func listCmd() *cobra.Command {
 	return cmd
 }
 
-func statsCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "stats",
-		Short: "Show memory statistics",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ms, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer ms.Close()
-
-			total, err := ms.Count(context.Background(), false)
-			if err != nil {
-				return err
-			}
-			active, err := ms.Count(context.Background(), true)
-			if err != nil {
-				return err
-			}
-			byType, err := ms.CountByType(context.Background(), true)
-			if err != nil {
-				return err
-			}
-			expired := total - active
-
-			if jsonOutput {
-				data := map[string]any{
-					"total":   total,
-					"active":  active,
-					"expired": expired,
-					"by_type": byType,
-				}
-				enc := json.NewEncoder(os.Stdout)
-				enc.SetIndent("", "  ")
-				return enc.Encode(data)
-			}
-
-			fmt.Printf("Total: %d\nActive: %d\nExpired: %d\n\nBy type:\n", total, active, expired)
-			for typ, cnt := range byType {
-				fmt.Printf("  %s: %d\n", typ, cnt)
-			}
-			return nil
-		},
-	}
-}
-
 func updateCmd() *cobra.Command {
 	var (
 		contentVal    string
@@ -561,34 +516,6 @@ func updateCmd() *cobra.Command {
 	cmd.Flags().Float64Var(&confidenceVal, "confidence", 0, "New confidence score")
 	cmd.Flags().StringVar(&validUntilVal, "valid-until", "", "New validity expiration")
 	cmd.Flags().StringVar(&metadataVal, "metadata", "", "New JSON metadata")
-	return cmd
-}
-
-func invalidateCmd() *cobra.Command {
-	var reasonVal string
-	cmd := &cobra.Command{
-		Use:   "invalidate <id>",
-		Short: "Invalidate a memory",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ms, err := openStore()
-			if err != nil {
-				return err
-			}
-			defer ms.Close()
-
-			ok, err := ms.Invalidate(context.Background(), args[0], reasonVal)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				return fmt.Errorf("llmem: invalidate: memory %s not found", args[0])
-			}
-			fmt.Printf("Invalidated %s\n", args[0])
-			return nil
-		},
-	}
-	cmd.Flags().StringVar(&reasonVal, "reason", "", "Invalidation reason")
 	return cmd
 }
 
@@ -797,75 +724,201 @@ func metricsCmd() *cobra.Command {
 	}
 }
 
-func dreamCmd() *cobra.Command {
-	var (
-		applyVal  bool
-		dryRunVal bool
-		phaseVal  string
-		reportVal string
-	)
-	cmd := &cobra.Command{
-		Use:   "dream",
-		Short: "Run dream consolidation cycle",
+func pinCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "pin <id>",
+		Short: "Pin a stable memory (exempt from TTL pruning)",
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if dryRunVal {
-				applyVal = false
-			}
 			ms, err := openStore()
 			if err != nil {
 				return err
 			}
 			defer ms.Close()
 
-			// Load config to populate dream settings
-			cfg, err := loadConfig()
-			if err != nil {
-				return fmt.Errorf("llmem: dream: load config: %w", err)
-			}
-
-			dreamerCfg := cfg.DreamerConfig()
-			dreamerCfg.Store = ms
-
-			d, err := dream.NewDreamer(dreamerCfg)
+			ok, err := ms.Pin(context.Background(), args[0])
 			if err != nil {
 				return err
 			}
-
-			result, err := d.Run(context.Background(), applyVal, phaseVal)
-			if err != nil {
-				return err
+			if !ok {
+				return fmt.Errorf("llmem: pin: memory %s not found", args[0])
 			}
-
-			if result.Light != nil {
-				fmt.Printf("Light: %d duplicate pairs\n", result.Light.DuplicatePairs)
-			}
-			if result.Deep != nil {
-				fmt.Printf("Deep: %d decayed, %d boosted, %d merged, %d auto-linked\n",
-					result.Deep.DecayedCount, result.Deep.BoostedCount,
-					result.Deep.MergedCount, result.Deep.AutoLinkedCount)
-			}
-			if result.Rem != nil {
-				fmt.Printf("REM: %d total memories, %d active\n",
-					result.Rem.TotalMemories, result.Rem.ActiveMemories)
-				for _, theme := range result.Rem.Themes {
-					fmt.Printf("  Theme: %s\n", theme)
-				}
-			}
-
-			if reportVal != "" {
-				if err := d.GenerateDreamReport(result, reportVal); err != nil {
-					return err
-				}
-				fmt.Printf("Dream report written to %s\n", reportVal)
-			}
-
+			fmt.Printf("Pinned %s\n", args[0])
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&applyVal, "apply", false, "Apply changes (default: dry run)")
-	cmd.Flags().BoolVar(&dryRunVal, "dry-run", false, "Dry run only (default: true). Shorthand for omitting --apply.")
-	cmd.Flags().StringVar(&phaseVal, "phase", "", "Run specific phase: light, deep, rem (default: all)")
-	cmd.Flags().StringVar(&reportVal, "report", "", "Generate HTML dream report at this path")
+}
+
+func unpinCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "unpin <id>",
+		Short: "Unpin a stable memory (re-enables TTL pruning)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ms, err := openStore()
+			if err != nil {
+				return err
+			}
+			defer ms.Close()
+
+			ok, err := ms.Unpin(context.Background(), args[0])
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return fmt.Errorf("llmem: unpin: memory %s not found", args[0])
+			}
+			fmt.Printf("Unpinned %s\n", args[0])
+			return nil
+		},
+	}
+}
+
+func briefCmd() *cobra.Command {
+	var maxLines int
+	cmd := &cobra.Command{
+		Use:   "brief",
+		Short: "Generate and display the session briefing",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ms, err := openStore()
+			if err != nil {
+				return err
+			}
+			defer ms.Close()
+
+			cfg := store.DefaultBriefingConfig()
+			if maxLines > 0 {
+				cfg.MaxLines = maxLines
+			}
+
+			b, err := ms.GenerateBriefing(context.Background(), cfg)
+			if err != nil {
+				return err
+			}
+			fmt.Print(b.Format())
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&maxLines, "max-lines", 0, "Maximum lines in briefing (default: 25)")
+	return cmd
+}
+
+func amendCmd() *cobra.Command {
+	var (
+		volatileText string
+		pinIDs        []string
+		unpinIDs       []string
+		pruneOnly      bool
+	)
+	cmd := &cobra.Command{
+		Use:   "amend",
+		Short: "Session-end cycle: update volatile state, manage pins, prune expired, regenerate briefing",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ms, err := openStore()
+			if err != nil {
+				return err
+			}
+			defer ms.Close()
+
+			ctx := context.Background()
+
+			// 1. Update volatile state
+			if volatileText != "" {
+				_, err := ms.Add(ctx, store.AddParams{
+					Type:    "volatile",
+					Content: volatileText,
+					Source:  "amend",
+				})
+				if err != nil {
+					return fmt.Errorf("llmem: amend: add volatile: %w", err)
+				}
+				fmt.Println("Updated volatile state")
+			}
+
+			// 2. Pin memories
+			for _, id := range pinIDs {
+				ok, err := ms.Pin(ctx, id)
+				if err != nil {
+					slog.Warn("llmem: amend: pin failed", "id", id, "error", err)
+					continue
+				}
+				if ok {
+					fmt.Printf("Pinned %s\n", id)
+				} else {
+					slog.Warn("llmem: amend: pin: memory not found", "id", id)
+				}
+			}
+
+			// 3. Unpin memories
+			for _, id := range unpinIDs {
+				ok, err := ms.Unpin(ctx, id)
+				if err != nil {
+					slog.Warn("llmem: amend: unpin failed", "id", id, "error", err)
+					continue
+				}
+				if ok {
+					fmt.Printf("Unpinned %s\n", id)
+				} else {
+					slog.Warn("llmem: amend: unpin: memory not found", "id", id)
+				}
+			}
+
+			// 4. Prune expired
+			pruned, err := ms.PruneExpired(ctx)
+			if err != nil {
+				return fmt.Errorf("llmem: amend: prune: %w", err)
+			}
+			if pruned > 0 {
+				fmt.Printf("Pruned %d expired memories\n", pruned)
+			}
+
+			// 5. Output updated briefing (unless prune-only)
+			if !pruneOnly {
+				b, err := ms.GenerateBriefing(ctx, store.DefaultBriefingConfig())
+				if err != nil {
+					return fmt.Errorf("llmem: amend: briefing: %w", err)
+				}
+				fmt.Print(b.Format())
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&volatileText, "volatile", "", "Update volatile session-state memory with this content")
+	cmd.Flags().StringArrayVar(&pinIDs, "pin", nil, "Pin a stable memory by ID (repeatable)")
+	cmd.Flags().StringArrayVar(&unpinIDs, "unpin", nil, "Unpin a stable memory by ID (repeatable)")
+	cmd.Flags().BoolVar(&pruneOnly, "prune-only", false, "Only run TTL pruning, skip briefing output")
+	return cmd
+}
+
+func migrateTypesCmd() *cobra.Command {
+	var dryRun bool
+	cmd := &cobra.Command{
+		Use:   "migrate-types",
+		Short: "One-time migration from 7 legacy types to 3 new tier types",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ms, err := openStore()
+			if err != nil {
+				return err
+			}
+			defer ms.Close()
+
+			result, err := ms.MigrateTypes(context.Background(), dryRun)
+			if err != nil {
+				return err
+			}
+
+			if dryRun {
+				fmt.Println("Dry run — no changes made:")
+			}
+			fmt.Printf("Retyped:   %d\n", result.Retyped)
+			fmt.Printf("Merged:    %d\n", result.Merged)
+			fmt.Printf("Pruned:    %d\n", result.Pruned)
+			fmt.Printf("Compressed: %d\n", result.Compressed)
+			fmt.Printf("Extracted: %d\n", result.Extracted)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Preview changes without modifying the store")
 	return cmd
 }
 

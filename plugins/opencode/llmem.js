@@ -23,7 +23,6 @@ const os = require("os");
 const LLMEM = "llmem";
 const TIMEOUT_MS = 60000;
 const INJECT_TAG = "## LLMem Context";
-const STATS_TAG = "## LLMem Stats";
 
 function run(args, timeout) {
   try {
@@ -59,30 +58,15 @@ const LLMemPlugin = async function ({ client, $, directory, worktree }) {
   return {
     event: async function ({ event }) {
       if (event.type === "session.created") {
-        const stats = run(["stats"]);
-        if (stats) {
-          log(client, "info", STATS_TAG + "\n" + stats);
-        }
-
-        const context = run([
-          "search",
-          "recent decisions important facts preferences",
-          "--limit",
-          "5",
-        ]);
-        if (context) {
-          log(client, "info", INJECT_TAG + "\n" + context);
+        const briefing = run(["brief"]);
+        if (briefing) {
+          log(client, "info", INJECT_TAG + "\n" + briefing);
         }
       }
     },
 
     "experimental.session.compacting": async function (input, output) {
-      const result = run([
-        "search",
-        "recent decisions important facts preferences procedures",
-        "--limit",
-        "15",
-      ]);
+      const result = run(["brief"]);
       if (result) {
         output.context.push(INJECT_TAG + "\n\n" + result);
       }
