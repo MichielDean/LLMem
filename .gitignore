@@ -1,7 +1,7 @@
 # Build output
 *.db
-llmem-bin
-llmem
+/llmem-bin
+/llmem
 
 # IDE
 .vscode/

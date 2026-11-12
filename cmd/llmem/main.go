@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
-	"path/filepath"
-	"time"
+		"path/filepath"
+		"strings"
+		"time"
 
 	"github.com/MichielDean/LLMem/internal/config"
 	"github.com/MichielDean/LLMem/internal/dream"
@@ -48,6 +50,7 @@ func main() {
 		metricsCmd(),
 		dreamCmd(),
 
+		extractCmd(nil),
 		backfillEmbeddingsCmd(),
 	)
 
@@ -85,30 +88,162 @@ func openStore() (*store.MemoryStore, error) {
 	return ms, nil
 }
 
+// httpClient is an optional pre-configured HTTP client for test injection
+// (httptest.NewServer). When nil, Ollama URLs are validated via urlvalidate.
+func extractCmd(httpClient *http.Client) *cobra.Command {
+	var (
+		textVal   string
+		fileVal   string
+		dryRunVal bool
+	)
+	cmd := &cobra.Command{
+		Use:   "extract",
+		Short: "Extract memories from text using the configured Ollama extraction model",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			// Exactly one of --text / --file is required.
+			if textVal != "" && fileVal != "" {
+				return fmt.Errorf("llmem: extract: --text and --file are mutually exclusive")
+			}
+			if textVal == "" && fileVal == "" {
+				return fmt.Errorf("llmem: extract: exactly one of --text or --file is required")
+			}
 
+			source := textVal
+			if fileVal != "" {
+				resolvedFile, err := filepath.Abs(fileVal)
+				if err != nil {
+					return fmt.Errorf("llmem: extract: resolve file path: %w", err)
+				}
+				if paths.IsBlockedPath(resolvedFile) {
+					return fmt.Errorf("llmem: extract: file path targets a blocked system directory: %s", resolvedFile)
+				}
+				data, err := os.ReadFile(resolvedFile)
+				if err != nil {
+					return fmt.Errorf("llmem: extract: read file: %w", err)
+				}
+				if len(data) > 10*1024*1024 {
+					return fmt.Errorf("llmem: extract: file too large (max 10 MiB): %s", resolvedFile)
+				}
+				source = string(data)
+			}
 
-// openExtractionEngine creates an ExtractionEngine for session hooks.
-// Returns nil on failure — the coordinator gracefully handles a nil engine
-// by skipping extraction (graceful degradation).
-func openExtractionEngine() *extract.ExtractionEngine {
-	engine, err := extract.NewExtractionEngine(extract.ExtractionConfig{})
-	if err != nil {
-		slog.Debug("llmem: failed to create extraction engine, skipping", "error", err)
-		return nil
+			cfg, err := loadConfig()
+			if err != nil {
+				return fmt.Errorf("llmem: extract: load config: %w", err)
+			}
+
+			extractEngine, err := extract.NewExtractionEngine(extract.ExtractionConfig{
+				Model:      cfg.Memory.ExtractModel,
+				BaseURL:    cfg.Memory.OllamaURL,
+				HTTPClient: httpClient,
+			})
+			if err != nil {
+				return fmt.Errorf("llmem: extract: failed to create extraction engine: %w", err)
+			}
+
+			availCtx, availCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			available := extractEngine.CheckAvailable(availCtx)
+			availCancel()
+			if !available {
+				slog.Warn("llmem: extract: extraction model unavailable, skipping",
+					"model", cfg.Memory.ExtractModel,
+					"ollama_url", cfg.Memory.OllamaURL)
+				return nil
+			}
+
+			extracted := extractEngine.Extract(context.Background(), source)
+
+			// Embedding engine is only constructed when an embed model is configured.
+			var embedEngine *embed.EmbeddingEngine
+			if cfg.Memory.EmbedModel != "" {
+				embedEngine, err = embed.NewEmbeddingEngine(embed.EmbeddingConfig{
+					Model:      cfg.Memory.EmbedModel,
+					BaseURL:    cfg.Memory.OllamaURL,
+					HTTPClient: httpClient,
+				})
+				if err != nil {
+					slog.Warn("llmem: extract: failed to create embedding engine, storing without embeddings", "error", err)
+					embedEngine = nil
+				}
+			}
+
+			ms, err := openStore()
+			if err != nil {
+				return err
+			}
+			defer ms.Close()
+
+			for _, item := range extracted {
+				memType, _ := item["type"].(string)
+				content, _ := item["content"].(string)
+				if content == "" || memType == "" {
+					slog.Debug("llmem: extract: skipping memory with unregistered type", "type", memType)
+					continue
+				}
+				confidence, _ := item["confidence"].(float64)
+				if dryRunVal {
+					if err := printMemoryOutput(&store.Memory{
+						Type:       memType,
+						Content:    content,
+						Confidence: confidence,
+						Source:     "extract",
+					}); err != nil {
+						return fmt.Errorf("llmem: extract: print memory: %w", err)
+					}
+					continue
+				}
+				var embedding []byte
+				if embedEngine != nil {
+					vec, embedErr := embedEngine.Embed(context.Background(), content)
+					if embedErr != nil {
+						slog.Warn("llmem: extract: failed to embed", "type", memType, "error", embedErr)
+					} else {
+						embedding = store.VecToBytes(vec)
+					}
+				}
+				id, addErr := ms.Add(context.Background(), store.AddParams{
+					Type:       memType,
+					Content:    content,
+					Source:     "extract",
+					Confidence: confidence,
+					Embedding:  embedding,
+				})
+				if addErr != nil {
+					if strings.Contains(addErr.Error(), "unregistered type") {
+						slog.Debug("llmem: extract: skipping memory with unregistered type", "type", memType)
+						continue
+					}
+					return fmt.Errorf("llmem: extract: store memory of type %q: %w", memType, addErr)
+				}
+				storedMem, getErr := ms.Get(context.Background(), id, false)
+				if getErr != nil || storedMem == nil {
+					slog.Warn("llmem: extract: failed to fetch stored memory for output", "id", id, "error", getErr)
+					continue
+				}
+				if err := printMemoryOutput(storedMem); err != nil {
+					return fmt.Errorf("llmem: extract: print memory: %w", err)
+				}
+			}
+			return nil
+		},
 	}
-	return engine
+	cmd.Flags().StringVar(&textVal, "text", "", "Text to extract memories from")
+	cmd.Flags().StringVar(&fileVal, "file", "", "Read text from file (max 10 MiB)")
+	cmd.Flags().BoolVar(&dryRunVal, "dry-run", false, "Extract and print, but store nothing")
+	return cmd
 }
 
-// openEmbeddingEngine creates an EmbeddingEngine for session hooks.
-// Returns nil on failure — the coordinator gracefully handles a nil engine
-// by storing memories without embeddings.
-func openEmbeddingEngine() *embed.EmbeddingEngine {
-	engine, err := embed.NewEmbeddingEngine(embed.EmbeddingConfig{})
-	if err != nil {
-		slog.Debug("llmem: failed to create embedding engine, skipping", "error", err)
-		return nil
+// printMemoryOutput renders a memory to stdout in the format selected by --json.
+// JSON marshal errors are returned (and thus propagated to RunE) rather than
+// being silently swallowed. Never returns an error in human-readable mode.
+func printMemoryOutput(m *store.Memory) error {
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		return enc.Encode(m)
 	}
-	return engine
+	fmt.Printf("%s [%s] %.2f %s\n", m.ID, m.Type, m.Confidence, m.Content)
+	return nil
 }
 
 func addCmd() *cobra.Command {
@@ -253,11 +388,8 @@ func searchCmd() *cobra.Command {
 				}
 			}
 			for _, m := range results {
-				if jsonOutput {
-					data, _ := json.MarshalIndent(m, "", "  ")
-					fmt.Println(string(data))
-				} else {
-					fmt.Printf("%s [%s] %.2f %s\n", m.ID, m.Type, m.Confidence, m.Content)
+				if err := printMemoryOutput(m); err != nil {
+					return fmt.Errorf("llmem: search: print result: %w", err)
 				}
 			}
 			return nil
@@ -306,11 +438,8 @@ func listCmd() *cobra.Command {
 				}
 			}
 			for _, m := range results {
-				if jsonOutput {
-					data, _ := json.MarshalIndent(m, "", "  ")
-					fmt.Println(string(data))
-				} else {
-					fmt.Printf("%s [%s] %.2f %s\n", m.ID, m.Type, m.Confidence, m.Content)
+				if err := printMemoryOutput(m); err != nil {
+					return fmt.Errorf("llmem: list: print result: %w", err)
 				}
 			}
 			return nil
