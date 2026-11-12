@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/MichielDean/LLMem/internal/config"
@@ -50,6 +51,7 @@ func main() {
 		unpinCmd(),
 		briefCmd(),
 		amendCmd(),
+		curateCmd(),
 		migrateTypesCmd(),
 
 		backfillEmbeddingsCmd(),
@@ -96,9 +98,10 @@ func openStore() (*store.MemoryStore, error) {
 // via urlvalidate.
 func extractCmd(httpClient *http.Client) *cobra.Command {
 	var (
-		textVal   string
-		fileVal   string
-		dryRunVal bool
+		textVal    string
+		fileVal    string
+		dryRunVal  bool
+		autoPinVal bool
 	)
 	cmd := &cobra.Command{
 		Use:   "extract",
@@ -229,6 +232,13 @@ func extractCmd(httpClient *http.Client) *cobra.Command {
 					slog.Warn("llmem: extract: failed to fetch stored memory for output", "id", id, "error", getErr)
 					continue
 				}
+				if autoPinVal && storedMem.Type == "stable" {
+					if _, pinErr := ms.Pin(context.Background(), id); pinErr != nil {
+						slog.Warn("llmem: extract: auto-pin failed", "id", id, "error", pinErr)
+					} else {
+						storedMem.Pinned = true
+					}
+				}
 				if err := printMemoryOutput(storedMem); err != nil {
 					return fmt.Errorf("llmem: extract: print memory: %w", err)
 				}
@@ -239,6 +249,7 @@ func extractCmd(httpClient *http.Client) *cobra.Command {
 	cmd.Flags().StringVar(&textVal, "text", "", "Text to extract memories from")
 	cmd.Flags().StringVar(&fileVal, "file", "", "Read text from file (max 10 MiB)")
 	cmd.Flags().BoolVar(&dryRunVal, "dry-run", false, "Extract and print, but store nothing")
+	cmd.Flags().BoolVar(&autoPinVal, "auto-pin", false, "Pin extracted stable memories (stated preferences — briefs every session)")
 	return cmd
 }
 
@@ -265,6 +276,7 @@ func addCmd() *cobra.Command {
 		validUntilVal string
 		metadataVal   string
 		fileVal       string
+		pinVal        bool
 	)
 	cmd := &cobra.Command{
 		Use:   "add",
@@ -313,6 +325,17 @@ func addCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if pinVal {
+				ok, err := ms.Pin(context.Background(), id)
+				if err != nil {
+					return fmt.Errorf("llmem: add: pin: %w", err)
+				}
+				if !ok {
+					return fmt.Errorf("llmem: add: pin failed for %s", id)
+				}
+				fmt.Printf("%s (pinned)\n", id)
+				return nil
+			}
 			fmt.Println(id)
 			return nil
 		},
@@ -325,6 +348,7 @@ func addCmd() *cobra.Command {
 	cmd.Flags().StringVar(&validUntilVal, "valid-until", "", "ISO 8601 timestamp for validity expiration")
 	cmd.Flags().StringVar(&metadataVal, "metadata", "", "JSON metadata")
 	cmd.Flags().StringVar(&fileVal, "file", "", "Read content from file")
+	cmd.Flags().BoolVar(&pinVal, "pin", false, "Pin after adding (stable only — pinned memories are TTL-exempt and always in the briefing)")
 	return cmd
 }
 
@@ -888,6 +912,202 @@ func amendCmd() *cobra.Command {
 	cmd.Flags().StringArrayVar(&unpinIDs, "unpin", nil, "Unpin a stable memory by ID (repeatable)")
 	cmd.Flags().BoolVar(&pruneOnly, "prune-only", false, "Only run TTL pruning, skip briefing output")
 	return cmd
+}
+
+func curateCmd() *cobra.Command {
+	var (
+		autoPinRounds int
+		pruneVal      bool
+	)
+	cmd := &cobra.Command{
+		Use:   "curate",
+		Short: "Nightly maintenance: prune expired, dedup near-duplicate pins, flag conflicts, emit promotion candidates",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ms, err := openStore()
+			if err != nil {
+				return err
+			}
+			defer ms.Close()
+
+			ctx := context.Background()
+			var pruned int
+			if pruneVal {
+				pruned, err = ms.PruneExpired(ctx)
+				if err != nil {
+					return fmt.Errorf("llmem: curate: prune: %w", err)
+				}
+			}
+
+			// 1. Dedup near-duplicate pinned memories (token-overlap Jaccard, threshold from migrate-types validation).
+			deduped, err := dedupPinned(ctx, ms)
+			if err != nil {
+				return fmt.Errorf("llmem: curate: dedup: %w", err)
+			}
+
+			// 2. Report potential conflict pairs among pins (resolved semantically
+			//    by the session agent from the briefing — no keyword auto-tombstoning).
+			conflicts, pairs, err := flagPinConflicts(ctx, ms)
+			if err != nil {
+				return fmt.Errorf("llmem: curate: conflicts: %w", err)
+			}
+
+			// 3. Promotion candidates: non-conflicted pins that are not already promoted,
+			//    tracked via a per-pin round counter in metadata.
+			candidates, err := promotionCandidates(ctx, ms, autoPinRounds)
+			if err != nil {
+				return fmt.Errorf("llmem: curate: candidates: %w", err)
+			}
+
+			// 4. Write a volatile work-queue memory so the next briefing surfaces
+			//    promotions AND conflict resolutions to the session agent automatically.
+			queueParts := []string{}
+			if len(candidates) > 0 {
+				queueParts = append(queueParts, fmt.Sprintf("AUTO-PROMOTE (%d) these pins into matching instruction/skill files at session start, then tombstone each: %s",
+					len(candidates), strings.Join(candidates, ", ")))
+			}
+			if len(pairs) > 0 {
+				queueParts = append(queueParts, fmt.Sprintf("RESOLVE CONFLICTS (%d): inspect these pinned pairs for contradiction; supersede the stale one, keep both if consistent: %s",
+					len(pairs), strings.Join(pairs, "; ")))
+			}
+			if len(queueParts) > 0 {
+				summary := "PROMOTION QUEUE — " + strings.Join(queueParts, " | ")
+				if _, addErr := ms.Add(ctx, store.AddParams{
+					Type:       "volatile",
+					Content:    summary,
+					Source:     "curator",
+					Confidence: 0.9,
+				}); addErr != nil {
+					slog.Warn("llmem: curate: failed to write queue memory", "error", addErr)
+				}
+			}
+
+			fmt.Printf("curate: pruned=%d deduped=%d conflicts=%d candidates=%d\n", pruned, deduped, conflicts, len(candidates))
+			for _, id := range candidates {
+				fmt.Printf("  candidate: %s\n", id)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().IntVar(&autoPinRounds, "auto-pin-rounds", 3, "Curator runs a pin must survive before becoming a promotion candidate")
+	cmd.Flags().BoolVar(&pruneVal, "prune", true, "Prune expired memories as part of curation")
+	return cmd
+}
+
+// dedupPinned merges near-duplicate pinned memories: token-overlap Jaccard >= 0.85
+// unpins the newer duplicate (tombstone semantics — searchable, ages out of briefing).
+func dedupPinned(ctx context.Context, ms *store.MemoryStore) (int, error) {
+	pins, err := ms.ListPinned(ctx)
+	if err != nil {
+		return 0, err
+	}
+	merged := 0
+	mergd := make(map[string]bool)
+	for i := 0; i < len(pins); i++ {
+		if mergd[pins[i].ID] {
+			continue
+		}
+		for j := i + 1; j < len(pins); j++ {
+			if mergd[pins[j].ID] {
+				continue
+			}
+			if tokenOverlap(pins[i].Content, pins[j].Content) >= 0.85 {
+				if _, err := ms.Unpin(ctx, pins[j].ID); err != nil {
+					slog.Warn("llmem: curate: dedup: unpin duplicate failed", "id", pins[j].ID, "error", err)
+					continue
+				}
+				mergd[pins[j].ID] = true
+				merged++
+			}
+		}
+	}
+	return merged, nil
+}
+
+// flagPinConflicts lists pinned pairs sharing topic keywords — reported, not resolved.
+// Keyword auto-supersession is deliberately NOT done here (prototype showed keyword
+// matching false-flags, e.g. "writ" hitting "write"). The session agent resolves flagged
+// pairs with LLM judgment during its next briefing; zero user involvement.
+func flagPinConflicts(ctx context.Context, ms *store.MemoryStore) (conflicts int, pairs []string, err error) {
+	pins, err := ms.ListPinned(ctx)
+	if err != nil {
+		return 0, nil, err
+	}
+	for i := 0; i < len(pins); i++ {
+		for j := i + 1; j < len(pins); j++ {
+			ov := tokenOverlap(pins[i].Content, pins[j].Content)
+			if ov >= 0.45 && ov < 0.85 {
+				pairs = append(pairs, pins[i].ID+" vs "+pins[j].ID)
+				conflicts++
+			}
+		}
+	}
+	return conflicts, pairs, nil
+}
+
+// promotionCandidates returns pins eligible for auto-promotion into instruction files:
+// a pin must survive `rounds` curator runs without being deduped/superseded.
+// Round counting lives in metadata ("curate_runs"), bumped on each run.
+func promotionCandidates(ctx context.Context, ms *store.MemoryStore, rounds int) ([]string, error) {
+	pins, err := ms.ListPinned(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var candidates []string
+	for _, m := range pins {
+		meta := map[string]any{}
+		for k, v := range m.Metadata {
+			meta[k] = v
+		}
+		if meta["promoted"] == true {
+			continue
+		}
+		runs := 0
+		if v, ok := meta["curate_runs"].(float64); ok {
+			runs = int(v)
+		}
+		runs++
+		meta["curate_runs"] = runs
+		if runs >= rounds {
+			candidates = append(candidates, m.ID)
+		}
+		if err := ms.UpdateMetadata(ctx, m.ID, meta); err != nil {
+			slog.Warn("llmem: curate: metadata bump failed", "id", m.ID, "error", err)
+		}
+	}
+	// Candidates persist across runs so they accumulate in the queue; the session
+	// agent marks metadata {"promoted": true} after promotion lands.
+	return candidates, nil
+}
+
+// tokenOverlap returns Jaccard similarity of word tokens (lowercased, punctuation-stripped).
+func tokenOverlap(a, b string) float64 {
+	setA := tokenize(a)
+	setB := tokenize(b)
+	if len(setA) == 0 || len(setB) == 0 {
+		return 0
+	}
+	inter := 0
+	for w := range setA {
+		if setB[w] {
+			inter++
+		}
+	}
+	union := len(setA) + len(setB) - inter
+	if union == 0 {
+		return 0
+	}
+	return float64(inter) / float64(union)
+}
+
+func tokenize(s string) map[string]bool {
+	out := make(map[string]bool)
+	for _, w := range strings.Fields(strings.ToLower(s)) {
+		w = strings.Trim(w, ".,;:!?\"'()[]{}——-")
+		if len(w) > 2 {
+			out[w] = true
+		}
+	}
+	return out
 }
 
 func migrateTypesCmd() *cobra.Command {

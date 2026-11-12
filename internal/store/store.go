@@ -1084,6 +1084,56 @@ func (ms *MemoryStore) Count(ctx context.Context, validOnly bool) (int, error) {
 	return count, nil
 }
 
+// ListPinned returns all pinned stable memories, oldest first.
+// Used by the curator for dedup, conflict flagging, and promotion candidate tracking.
+func (ms *MemoryStore) ListPinned(ctx context.Context) ([]*Memory, error) {
+	rows, err := ms.db.QueryContext(ctx,
+		`SELECT "id", "type", "content", "summary", "hints", "source", "confidence", "valid_from", "valid_until", "created_at", "updated_at", "accessed_at", "access_count", "metadata", "embedding", "pinned" FROM "memories" WHERE "type" = 'stable' AND "pinned" = 1 ORDER BY "created_at" ASC`)
+	if err != nil {
+		return nil, fmtErr("list_pinned: %w", err)
+	}
+	defer rows.Close()
+	var out []*Memory
+	for rows.Next() {
+		m, err := scanMemoryFromRows(rows)
+		if err != nil {
+			return nil, fmtErr("list_pinned: scan: %w", err)
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// UpdateMetadata merges the given map into a memory's existing metadata and persists it.
+// Missing metadata on the memory is treated as empty. Returns an error if not found.
+func (ms *MemoryStore) UpdateMetadata(ctx context.Context, id string, updates map[string]any) error {
+	m, err := ms.Get(ctx, id, false)
+	if err != nil {
+		return fmtErr("update_metadata: get: %w", err)
+	}
+	if m == nil {
+		return fmtErr("update_metadata: memory %s not found", id)
+	}
+	meta := map[string]any{}
+	for k, v := range m.Metadata {
+		meta[k] = v
+	}
+	for k, v := range updates {
+		meta[k] = v
+	}
+	raw, err := json.Marshal(meta)
+	if err != nil {
+		return fmtErr("update_metadata: marshal: %w", err)
+	}
+	now := nowUTC()
+	_, err = ms.db.ExecContext(ctx,
+		`UPDATE "memories" SET "metadata" = ?, "updated_at" = ? WHERE "id" = ?`, string(raw), now, id)
+	if err != nil {
+		return fmtErr("update_metadata: %w", err)
+	}
+	return nil
+}
+
 // CountByType returns a map of type to count, sorted by count descending.
 func (ms *MemoryStore) CountByType(ctx context.Context, validOnly bool) (map[string]int, error) {
 	clause := ""
