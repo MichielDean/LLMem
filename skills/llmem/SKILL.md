@@ -1,18 +1,18 @@
 ---
 name: llmem
 description: >
-  Manage LLMem — structured memory system with SQLite-backed factual memory,
-  semantic search, and background dreaming (decay, boost, promote, merge).
+  Manage LLMem — structured memory system with SQLite-backed storage,
+  semantic search, TTL-based retention, and session briefing generation.
   Use when the user wants to: (1) add, search, update, or delete memories,
-  (2) generate context for injection, (3) check memory stats, (4) run background
-  consolidation/dream. Triggers on: "memory", "remember", "recall", "llmem",
-  "memories", "forget", "consolidate memories", "dream".
+  (2) generate a session briefing, (3) pin/unpin stable memories, (4) run
+  session-end amend cycle. Triggers on: "memory", "remember", "recall",
+  "llmem", "memories", "forget", "briefing", "amend".
 license: MIT
 ---
 
 # LLMem
 
-LLMem is a structured memory system (Go binary). It stores factual memories in SQLite with optional embedding-based semantic search via Ollama (nomic-embed-text). Semantic search uses a sqlite-vec HNSW ANN index for sub-linear retrieval, with automatic fallback to brute-force cosine similarity if the sqlite-vec extension is not available. Memories can be connected via typed relations (`related_to`, `supersedes`, `contradicts`, `depends_on`, `derived_from`). A background dreaming/consolidation system (light, deep, REM phases) runs automatically via systemd timer to decay idle memories, boost frequent ones, promote high-value ones, and merge near-duplicates.
+LLMem is a structured memory system (Go binary). It stores memories in SQLite with optional embedding-based semantic search via Ollama (nomic-embed-text). Semantic search uses a sqlite-vec HNSW ANN index for sub-linear retrieval, with automatic fallback to brute-force cosine similarity if the sqlite-vec extension is not available.
 
 ## Installation
 
@@ -42,81 +42,99 @@ copilot:
 
 ## Memory Types
 
-| Type | Use for |
-|------|---------|
-| fact | Objective truths, definitions, state of the world |
-| decision | Choices made and their rationale |
-| preference | User preferences, style choices |
-| event | Things that happened at a point in time |
-| project_state | Current status of a project or system |
-| procedure | How-to knowledge, step sequences |
-| conversation | Notable conversation outcomes or commitments |
+Three tier types with different TTL and briefing behavior:
+
+| Type | TTL | Briefing | Use for |
+|------|-----|-----------|---------|
+| stable | 90 days (reset on retrieval) | Yes (pinnable) | Procedures, decisions, preferences, non-obvious facts |
+| volatile | 14 days (reset on retrieval) | Yes (recent) | Project state, active work, blockers |
+| log | 90 days (hard, no reset) | No (searchable only) | Audit records, application logs, dedup history |
+
+**Write discipline:** Only write memories for non-obvious, reusable knowledge. If the filesystem has the answer, do not write a memory.
+
+## Session Briefing
+
+The briefing is a compact (~25 line) context block auto-injected at session start by the opencode plugin. It includes:
+
+1. **Pinned stable memories** — explicitly pinned, always present
+2. **Recent volatile memories** — non-expired, current work state
+3. **Top-5 recent stable memories** — most recently updated, not already pinned
+4. **Store health** — count by tier, pinned count, expired count
+
+Capped at ~25 lines. Over cap: recent stable dropped first, then volatile beyond most recent 3.
 
 ## Key Commands
 
 ```bash
-# Add a memory
-llmem add --content "content" --type fact
-llmem add --content "prefer dark theme" --type preference --confidence 0.9
+# Add a memory (default type: stable)
+llmem add --content "content" --type stable
+llmem add --content "current project state" --type volatile
+llmem add --content "Applied to Acme Corp" --type log
 
-# Search memories (hybrid RRF fusion by default)
+# Generate session briefing
+llmem brief
+llmem brief --max-lines 15
+
+# Session-end cycle: update volatile, manage pins, prune, regenerate briefing
+llmem amend --volatile "current state text"
+llmem amend --pin <id> --unpin <id>
+llmem amend --prune-only  # just prune expired, skip briefing
+
+# Pin/unpin stable memories (TTL exempt)
+llmem pin <id>
+llmem unpin <id>
+
+# Search memories (for exploratory queries only — briefing covers routine context)
 llmem search "query"
-llmem search "query" --type decision --limit 5
-llmem search "query" --fts-only        # FTS5 keyword search only (no embedder needed)
-llmem search "query" --semantic-only   # Semantic (embedding) search only (requires embedder)
-llmem search "query" --valid-only     # Only show valid (non-expired) memories
+llmem search "query" --type stable --limit 5
+llmem search "query" --fts-only        # FTS5 keyword search only
+llmem search "query" --semantic-only   # Semantic search only (requires embedder)
 
 # List all
 llmem list
-llmem list --type fact --limit 20
+llmem list --type stable --limit 20
 llmem list --all                       # Include expired memories
 
-# Get specific memory (read-only, does not update access stats)
+# Get specific memory
 llmem get <id>
 
 # Update a memory
 llmem update <id> --content "new content"
 llmem update <id> --confidence 0.95
-llmem update <id> --summary "short summary"
-llmem update <id> --metadata '{"key": "value"}'
-
-# Invalidate (soft-delete — marks as expired)
-llmem invalidate <id> --reason "no longer relevant"
 
 # Delete permanently
 llmem delete <id>
 
-# Stats
-llmem stats
-
-# Dream — background consolidation (decay, boost, promote, merge)
-llmem dream                                               # Preview all phases (dry-run)
-llmem dream --apply                                       # Execute all phases
-llmem dream --phase light                                 # Run only the light phase
-llmem dream --phase deep                                  # Run only the deep phase
-llmem dream --phase rem                                   # Run only the REM phase
-llmem dream --apply --phase deep                          # Apply only the deep phase
-llmem dream --apply --report /path/to/report.html         # Generate HTML dream report
+# One-time migration from legacy 7 types to 3 new tiers
+llmem migrate-types --dry-run    # Preview changes
+llmem migrate-types               # Execute migration
 
 # Export/import
 llmem export --output memories.json
 llmem import memories.json
-
-# Embedding quality metrics
-llmem metrics
 
 # Initialize config and database
 llmem init
 llmem init --ollama-url http://localhost:11434
 ```
 
+## Retention Model
+
+TTL + pinning is the entire retention mechanism. No manual invalidation, no dreaming.
+
+- **stable**: 90-day TTL. Reset on retrieval. Pinned memories exempt (valid_until = NULL while pinned).
+- **volatile**: 14-day TTL. Reset on retrieval. Auto-pruned when inactive.
+- **log**: 90-day hard retention. No reset on retrieval.
+
+`llmem amend` at session end triggers TTL pruning — deletes all non-pinned memories where valid_until is in the past.
+
 ## Relations
 
-Memories can be linked by typed relations: `supersedes`, `contradicts`, `depends_on`, `related_to`, `derived_from`.
+Memories can be linked by typed relations: `supersedes`, `related_to`, `derived_from`.
 
-Relations are managed internally by the dream system and extraction pipeline. The Go backend supports relation traversal in search (exposed via the `Retriever` API) but the CLI does not yet expose `--traverse-relations` as a flag.
+Relations are managed internally by the extraction pipeline. The Go backend supports relation traversal in search (exposed via the `Retriever` API) but the CLI does not yet expose `--traverse-relations` as a flag.
 
-### Multi-Signal Reranking
+### Multi-signal Reranking
 
 After RRF fusion, search results are automatically reranked using a blend of the RRF score and four weighted signals:
 
@@ -139,48 +157,16 @@ final_score = rrf_score * (1 - blend) + weighted_signal * blend
 
 | Type | Priority |
 |------|----------|
-| decision | 1.2 |
-| preference | 1.1 |
-| procedure | 1.1 |
-| fact | 1.0 |
-| project_state | 1.0 |
-| event | 0.9 |
-| conversation | 0.7 |
+| volatile | 1.2 |
+| stable | 1.1 |
+| log | 0.7 |
 
 ## Important Notes
 
-- **Go binary** — `llmem` is now a compiled Go binary at `~/.local/bin/llmem`, symlinked from `/usr/local/bin/llmem`. No Python virtualenv needed.
-- **Invalidate, don't delete** unless the memory was wrong. Invalidated memories stay for reference but aren't returned in searches.
+- **Go binary** — `llmem` is a compiled Go binary at `~/.local/bin/llmem`, symlinked from `/usr/local/bin/llmem`. No Python virtualenv needed.
+- **TTL, not invalidation** — memories auto-expire based on their tier TTL. Pin stable memories to preserve them. Use `llmem amend` at session end to prune expired.
 - **Embeddings** require Ollama running with `nomic-embed-text` pulled. If Ollama is down, semantic search falls back to FTS5-only.
 - **ANN vector index** — semantic search uses sqlite-vec (`vec0` virtual table) for fast ANN retrieval, with automatic fallback to brute-force cosine similarity if sqlite-vec is not available.
 - **Confidence** is 0.0-1.0. Higher = more certain. Facts from the user directly should be 0.9+, auto-extracted should be 0.7.
-- **Context generation** uses `llmem search <query>` to find relevant memories for injection into a session. The plugin handles this automatically at session start.
-- **Access tracking** — `llmem get` is read-only and does not update `access_count` or `accessed_at`. Search operations automatically track access — each returned result's `access_count` and `accessed_at` are updated (best-effort).
-
-
-## Dream — Background Consolidation
-
-The dream system is an automated memory maintenance pipeline that runs three phases:
-
-- **Light** — finds near-duplicates using cosine similarity (configurable threshold, default 0.92). Produces merge candidates for the deep phase.
-- **Deep** — decays idle memories (confidence decreases over time), boosts frequently accessed memories, promotes high-scoring memories, and merges near-duplicates using LLM-assisted merge with fallback to concatenation.
-- **REM** — extracts themes and clusters from memory, writes a human-readable dream diary to `~/.config/llmem/dream-diary.md`. Produces type counts, word clusters, and total/active memory counts.
-
-**Default mode is dry-run** — use `--apply` to actually make changes. Without it, `llmem dream` only previews what would happen. Use `--report /path/to/report.html` to generate an HTML dream report.
-
-**Scheduling**: A systemd user timer (`llmem-dream.timer`) runs `llmem dream --apply` nightly at 3am. See `harness/llmem-dream.service` and `harness/llmem-dream.timer`.
-
-**Dream config** lives under the `dream:` key in `~/.config/llmem/config.yaml`:
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `similarity_threshold` | 0.92 | Cosine similarity for near-duplicate detection |
-| `decay_rate` | 0.05 | Confidence reduction per decay interval |
-| `decay_interval_days` | 30 | Days per decay interval |
-| `decay_floor` | 0.3 | Minimum confidence after decay |
-| `confidence_floor` | 0.3 | Memories at or below this are invalidated |
-| `boost_threshold` | 5 | Access count that triggers confidence boost |
-| `boost_amount` | 0.05 | Confidence boost amount |
-| `diary_path` | ~/.config/llmem/dream-diary.md | Path to dream diary file |
-| `report_path` | (none) | Path for HTML dream report output |
-| `auto_link_threshold` | (none) | Cosine similarity threshold for auto-linking related memories |
+- **Briefing auto-injected** — the opencode plugin runs `llmem brief` at session start. No manual command needed for routine context.
+- **Access tracking** — `llmem get` is read-only and does not update `access_count` or `accessed_at`. Search operations automatically track access and reset TTL for stable/volatile.
