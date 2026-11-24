@@ -74,7 +74,8 @@ const LLMemPlugin = async function ({ client, $, directory, worktree }) {
   };
 };
 
-module.exports = { LLMemPlugin };
+// OpenCode v2 requires a default export of the plugin factory.
+export default LLMemPlugin;
 if (typeof window === "undefined" || typeof globalThis !== "undefined") {
   try {
     globalThis.LLMemPlugin = LLMemPlugin;
