@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/MichielDean/LLMem/actions/workflows/ci.yml/badge.svg)](https://github.com/MichielDean/LLMem/actions/workflows/ci.yml)
 
-LLMem is a SQLite-backed memory store for LLM agents. It provides structured storage with full-text search (FTS5), optional vector similarity search (via sqlite-vec), an extensible type system, and a provider abstraction layer for LLM embeddings and text generation. A background dreaming cycle consolidates, decays, and merges memories over time.
+LLMem is a SQLite-backed memory store for LLM agents. It provides structured storage with full-text search (FTS5), optional vector similarity search (via sqlite-vec), an extensible type system, and a provider abstraction layer for LLM embeddings and text generation.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and coding conventions.
 
@@ -14,11 +14,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and coding conventi
 | [Providers](docs/PROVIDERS.md) | Embedding/generation providers, fallback chains, configuration |
 | [CLI Reference](docs/CLI.md) | All `llmem` commands and options |
 | [Python API](docs/API.md) | MemoryStore, Retriever, extension points, database schema, module reference |
-| [Go API](docs/API.md#go-api) | Go packages — store, config, dream, extract, ollama, paths, systemd, taxonomy, urlvalidate |
+| [Go API](docs/API.md#go-api) | Go packages — store, config, extract, ollama, paths, taxonomy, urlvalidate |
 | [Integrations](docs/INTEGRATIONS.md) | OpenCode, Copilot CLI, custom tools, plugins |
-| [Configuration](docs/CONFIGURATION.md) | config.yaml reference, path resolution, dream settings |
+| [Configuration](docs/CONFIGURATION.md) | config.yaml reference, path resolution |
 | [Search Reranking](docs/RERANKING.md) | Multi-signal reranking, signal weights, type priority |
-| [Dream Cycle & Extraction](docs/DREAM.md) | Dream phases, extraction pipeline |
 | [Security](docs/SECURITY.md) | Path validation, SSRF protection, credential handling, code indexing security |
 
 ## Installation
@@ -81,7 +80,7 @@ See below for per-platform setup details.
 
 ### Go (memory store library)
 
-The Go implementation provides the core memory store as a pure-Go library with no CGo dependency, plus a full CLI, dream cycle, and extraction:
+The Go implementation provides the core memory store as a pure-Go library with no CGo dependency, plus a full CLI, and extraction:
 
 ```bash
 go get github.com/MichielDean/LLMem
@@ -145,7 +144,7 @@ LLMem ships two skills focused on memory management. They load on-demand via the
 
 | Skill | Description |
 |-------|-------------|
-| **llmem** | Manage LLMem memories — add, search, consolidate, and dream. |
+| **llmem** | Manage LLMem memories — add, search, amend, and curate. |
 | **llmem-setup** | Install and configure LLMem — plugin deployment, provider setup, skill registration. |
 
 ## Templates
@@ -234,12 +233,6 @@ llmem inbox
 llmem consolidate --dry-run
 llmem consolidate --min-score 0.5
 
-# Dream cycle (automated memory maintenance)
-llmem dream                   # Dry run — preview changes only
-llmem dream --apply           # Apply changes
-llmem dream --phase deep      # Run only the deep phase
-llmem dream --report dream.html  # Generate HTML dream report
-
 # Check embedding quality
 llmem embed
 llmem consolidate --metrics
@@ -261,7 +254,7 @@ go test ./...
 
 1349 Python tests and 142 JavaScript tests covering all providers, session adapters (OpenCode, Copilot, none), URL validation, configuration, security, CLI commands, and edge cases.
 
-Go tests covering store operations, FTS5 search, vector search, hybrid retrieval, embedding engine, metrics, URL validation, migrations, type validation, import/export, config, dream cycle, extraction, path validation, systemd unit generation, and taxonomy.
+Go tests covering store operations, FTS5 search, vector search, hybrid retrieval, embedding engine, metrics, URL validation, migrations, type validation, import/export, config, path validation, systemd unit generation, and taxonomy.
 
 ## Makefile
 

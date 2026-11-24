@@ -4,7 +4,7 @@ How to install and set up LLMem. [Back to README](../README.md)
 
 ## Go Installation (recommended)
 
-The Go binary provides the full CLI, dream cycle, and extraction.
+The Go binary provides the full CLI, and extraction.
 
 ### Build from source
 
@@ -77,7 +77,7 @@ claude --plugin-dir ~/.claude/plugins/llmem
 
 - Go 1.26.1+ (for building the CLI)
 - Node.js 20+ (for plugin installation only)
-- [Ollama](https://ollama.com) running locally for extraction, embedding, and dreaming — **or** set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` for cloud providers — **or** use FTS5-only mode without any provider
+- [Ollama](https://ollama.com) running locally for extraction and embedding — **or** set `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` for cloud providers — **or** use FTS5-only mode without any provider
 
 ## Python Installation (legacy)
 
@@ -171,6 +171,5 @@ go test ./...
 | Embeddings/Providers | Ollama, OpenAI, Anthropic, local | Ollama (`/api/generate` and `/api/embeddings`) |
 | Reranking | RRF + multi-signal | FTS5-only (hybrid coming) |
 | Session hooks | Full lifecycle (Python API via session adapters) | Python-only; Go CLI provides manual `llmem extract` |
-| Dream cycle | Full (light, deep, REM) | Full (light, deep, REM) |
 
 The Go `MemoryStore` shares the **exact same database schema** as Python. You can use them interchangeably — a database created by Python is readable by Go, and vice versa.

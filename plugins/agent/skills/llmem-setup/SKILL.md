@@ -199,25 +199,6 @@ ls ~/.agents/plugins/llmem/
 llmem stats && llmem search "test" --limit 5
 ```
 
-### Step 6: Dream Timer (Optional)
-
-For automatic memory consolidation, set up the systemd dream timer:
-
-```bash
-# Copy timer and service files (adjust paths for your system)
-cp LLMem/harness/llmem-dream.service ~/.config/systemd/user/
-cp LLMem/harness/llmem-dream.timer ~/.config/systemd/user/
-
-# Edit the service file to point to your llmem binary
-# ExecStart=/path/to/llmem dream --apply
-
-systemctl --user daemon-reload
-systemctl --user enable llmem-dream.timer
-systemctl --user start llmem-dream.timer
-```
-
-Dream runs nightly at 3am by default. Configure in `~/.config/llmem/config.yaml` under `dream:`.
-
 ## Troubleshooting
 
 **`llmem: command not found`** — The pip install didn't put the binary on PATH. Try `python3 -m llmem.cli` or check `pip show llmem` for the install location. On some systems you may need `pip install --break-system-packages .` or a virtual environment.

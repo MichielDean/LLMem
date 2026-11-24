@@ -169,26 +169,6 @@ func TestGetConfigPath(t *testing.T) {
 	}
 }
 
-func TestGetDreamDiaryPath(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("LMEM_HOME", dir)
-	path := GetDreamDiaryPath()
-	expected := filepath.Join(dir, "dream_diary.md")
-	if path != expected {
-		t.Errorf("expected %q, got %q", expected, path)
-	}
-}
-
-func TestGetDreamReportPath(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("LMEM_HOME", dir)
-	path := GetDreamReportPath()
-	expected := filepath.Join(dir, "dream_report.html")
-	if path != expected {
-		t.Errorf("expected %q, got %q", expected, path)
-	}
-}
-
 func TestGetSkillDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LMEM_HOME", dir)

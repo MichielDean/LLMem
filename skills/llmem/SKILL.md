@@ -120,7 +120,7 @@ llmem init --ollama-url http://localhost:11434
 
 ## Retention Model
 
-TTL + pinning is the entire retention mechanism. No manual invalidation, no dreaming.
+TTL + pinning is the entire retention mechanism. No manual invalidation.
 
 - **stable**: 90-day TTL. Reset on retrieval. Pinned memories exempt (valid_until = NULL while pinned).
 - **volatile**: 14-day TTL. Reset on retrieval. Auto-pruned when inactive.

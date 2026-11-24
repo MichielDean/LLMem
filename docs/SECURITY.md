@@ -32,7 +32,6 @@ Security measures, validation, and hardening in LLMem. [Back to README](../READM
 - `_search_by_embedding_brute()` uses a `LIMIT` clause (10,000 rows max) to prevent OOM on large databases.
 - **Embedding metrics computation capping**: `get_embeddings_with_types(limit=)` applies a SQL `LIMIT` clause (default: 10,000) and `compute_metrics(max_embeddings=10000)` truncates input vectors. These caps prevent O(n²) pairwise metrics computations from causing OOM or CPU hangs on large stores.
 - `process_transcript()` enforces the same size limit as `process_file()` to prevent OOM from large session transcripts.
-- **Dream diary locking**: On platforms with `fcntl` (Linux/macOS), dream diary writes use an exclusive file lock to prevent corruption from concurrent dream cycles.
 - OpenCode tool invocations (`_llmem.ts`) prepend `--` before user arguments to prevent argparse flag injection.
 - JavaScript hooks use `execFileSync` (not shell-based `execSync`) and `validateSessionId()` for path traversal protection, with `canSpawnProcess()` rate limiting and `MAX_CONCURRENT=3` process cap to prevent resource exhaustion.
 - Prototype pollution protection in `_parseSimpleYaml`: keys `__proto__`, `constructor`, and `prototype` are filtered from parsed YAML to prevent Object prototype mutation.

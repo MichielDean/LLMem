@@ -2,17 +2,16 @@
 name: llmem
 description: >
   Manage LLMem — structured memory system with SQLite-backed factual memory,
-  semantic search, and background dreaming (decay, boost, promote, merge).
+  semantic search, and TTL + pinning retention.
   Use when the user wants to: (1) add, search, update, or delete memories,
-  (2) generate context for injection, (3) check memory stats, (4) run background
-  consolidation/dream. Triggers on: "memory", "remember", "recall", "llmem",
-  "memories", "forget", "consolidate memories", "dream".
+  (2) generate context for injection, (3) check memory stats. Triggers on:
+  "memory", "remember", "recall", "llmem", "memories", "forget".
 license: MIT
 ---
 
 # LLMem
 
-LLMem is a structured memory system (Go binary). It stores factual memories in SQLite with optional embedding-based semantic search via Ollama (nomic-embed-text). Semantic search uses a sqlite-vec HNSW ANN index for sub-linear retrieval, with automatic fallback to brute-force cosine similarity if the sqlite-vec extension is not available. Memories can be connected via typed relations (`related_to`, `supersedes`, `contradicts`, `depends_on`, `derived_from`). A background dreaming/consolidation system (light, deep, REM phases) runs automatically via systemd timer to decay idle memories, boost frequent ones, promote high-value ones, and merge near-duplicates.
+LLMem is a structured memory system (Go binary). It stores factual memories in SQLite with optional embedding-based semantic search via Ollama (nomic-embed-text). Semantic search uses a sqlite-vec HNSW ANN index for sub-linear retrieval, with automatic fallback to brute-force cosine similarity if the sqlite-vec extension is not available. Memories can be connected via typed relations (`related_to`, `supersedes`, `contradicts`, `depends_on`, `derived_from`).
 
 ## Installation
 
@@ -89,14 +88,6 @@ llmem delete <id>
 # Stats
 llmem stats
 
-# Dream — background consolidation (decay, boost, promote, merge)
-llmem dream                                               # Preview all phases (dry-run)
-llmem dream --apply                                       # Execute all phases
-llmem dream --phase light                                 # Run only the light phase
-llmem dream --phase deep                                  # Run only the deep phase
-llmem dream --phase rem                                   # Run only the REM phase
-llmem dream --apply --phase deep                          # Apply only the deep phase
-llmem dream --apply --report /path/to/report.html         # Generate HTML dream report
 
 # Export/import
 llmem export --output memories.json
@@ -114,7 +105,7 @@ llmem init --ollama-url http://localhost:11434
 
 Memories can be linked by typed relations: `supersedes`, `contradicts`, `depends_on`, `related_to`, `derived_from`.
 
-Relations are managed internally by the dream system and extraction pipeline. The Go backend supports relation traversal in search (exposed via the `Retriever` API) but the CLI does not yet expose `--traverse-relations` as a flag.
+Relations are managed internally by the extraction pipeline. The Go backend supports relation traversal in search (exposed via the `Retriever` API) but the CLI does not yet expose `--traverse-relations` as a flag.
 
 ### Multi-Signal Reranking
 
@@ -156,31 +147,3 @@ final_score = rrf_score * (1 - blend) + weighted_signal * blend
 - **Confidence** is 0.0-1.0. Higher = more certain. Facts from the user directly should be 0.9+, auto-extracted should be 0.7.
 - **Context generation** uses `llmem search <query>` to find relevant memories for injection into a session. The plugin handles this automatically at session start.
 - **Access tracking** — `llmem get` is read-only and does not update `access_count` or `accessed_at`. Search operations automatically track access — each returned result's `access_count` and `accessed_at` are updated (best-effort).
-
-
-## Dream — Background Consolidation
-
-The dream system is an automated memory maintenance pipeline that runs three phases:
-
-- **Light** — finds near-duplicates using cosine similarity (configurable threshold, default 0.92). Produces merge candidates for the deep phase.
-- **Deep** — decays idle memories (confidence decreases over time), boosts frequently accessed memories, promotes high-scoring memories, and merges near-duplicates using LLM-assisted merge with fallback to concatenation.
-- **REM** — extracts themes and clusters from memory, writes a human-readable dream diary to `~/.config/llmem/dream-diary.md`. Produces type counts, word clusters, and total/active memory counts.
-
-**Default mode is dry-run** — use `--apply` to actually make changes. Without it, `llmem dream` only previews what would happen. Use `--report /path/to/report.html` to generate an HTML dream report.
-
-**Scheduling**: A systemd user timer (`llmem-dream.timer`) runs `llmem dream --apply` nightly at 3am. See `harness/llmem-dream.service` and `harness/llmem-dream.timer`.
-
-**Dream config** lives under the `dream:` key in `~/.config/llmem/config.yaml`:
-
-| Key | Default | Description |
-|-----|---------|-------------|
-| `similarity_threshold` | 0.92 | Cosine similarity for near-duplicate detection |
-| `decay_rate` | 0.05 | Confidence reduction per decay interval |
-| `decay_interval_days` | 30 | Days per decay interval |
-| `decay_floor` | 0.3 | Minimum confidence after decay |
-| `confidence_floor` | 0.3 | Memories at or below this are invalidated |
-| `boost_threshold` | 5 | Access count that triggers confidence boost |
-| `boost_amount` | 0.05 | Confidence boost amount |
-| `diary_path` | ~/.config/llmem/dream-diary.md | Path to dream diary file |
-| `report_path` | (none) | Path for HTML dream report output |
-| `auto_link_threshold` | (none) | Cosine similarity threshold for auto-linking related memories |

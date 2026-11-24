@@ -19,7 +19,6 @@ from llmem import (
     register_session_adapter,
     register_session_hook,
     get_registered_session_hooks,
-    register_dream_hook,
     register_cli_plugin,
 )
 from llmem.retrieve import Retriever, _rrf_score, DEFAULT_ALPHA, DEFAULT_RRF_K
@@ -104,7 +103,7 @@ store.invalidate(mid, reason="No longer relevant")
 # --- Working Memory Inbox ---
 # The inbox is a capacity-limited staging area for ephemeral information.
 # Items enter via add_to_inbox() and are promoted to long-term memory via
-# consolidate() or the dream deep phase.
+# consolidate().
 
 # Add a note to the inbox (default attention_score=0.5, source=note)
 inbox_id = store.add_to_inbox(content="Important observation", attention_score=0.8)
@@ -514,22 +513,6 @@ from llmem.registry import get_registered_adapters, get_adapter_class
 names = get_registered_adapters()        # frozenset of adapter names
 cls = get_adapter_class("my_adapter")     # the adapter class, or None
 ```
-
-### Dream Hook Registry
-
-Register a function to run after a dream phase completes. Hooks are called with `(Dreamer instance, DreamResult, apply: bool)` and errors are logged without crashing the dream cycle.
-
-```python
-from llmem import register_dream_hook
-
-def my_light_hook(dreamer, result, apply):
-    # Post-light-phase logic here
-    pass
-
-register_dream_hook("light", my_light_hook)
-```
-
-Valid phases: `"light"`, `"deep"`, `"rem"`. Only one hook per phase is allowed; registering a duplicate raises `ValueError`.
 
 ### Session Hook Registry
 
@@ -1159,8 +1142,6 @@ cfg, err := config.LoadConfig(paths.GetConfigPath())
 // Access config sections
 dbPath := cfg.DBPath()           // resolved database path
 ollamaURL, err := cfg.OllamaURL() // validated Ollama URL
-dreamerCfg := cfg.DreamerConfig() // DreamerConfig for dream.NewDreamer()
-dreamCfg := cfg.DreamConfigResolved()
 sessionCfg := cfg.SessionConfigResolved()
 
 // Write config YAML (with file permissions 0600)
@@ -1172,7 +1153,6 @@ written, err := config.WriteConfigYAML(path, configMap, false) // false = don't 
 ```go
 type Config struct {
     Memory    MemoryConfig
-    Dream     DreamConfig
     OpenCode  OpenCodeConfig
     Session   SessionConfig
 }
@@ -1187,19 +1167,6 @@ type MemoryConfig struct {
     MaxFileSize   int64
 }
 
-type DreamConfig struct {
-    SimilarityThreshold    float64
-    DecayRate               float64
-    DecayIntervalDays       int
-    DecayFloor              float64
-    ConfidenceFloor          float64
-    BoostThreshold           int
-    BoostAmount             float64
-    DiaryPath                string
-    ReportPath               string
-    AutoLinkThreshold        float64
-    StaleProcedureDays       int
-}
 
 type SessionConfig struct {
     Adapter         string
@@ -1213,13 +1180,9 @@ type SessionConfig struct {
 - `DBPath()` resolves `~` and applies defaults.
 - `WriteConfigYAML` writes with `0600` permissions.
 
-### Dream Cycle (internal/dream)
-
-See [Dream Cycle & Extraction](DREAM.md#go-api--dream-package) for full documentation.
-
 ### Extraction (internal/extract)
 
-The `internal/extract` package provides LLM-based memory extraction via Ollama (see [Dream Cycle & Extraction](DREAM.md#go) for usage).
+The `internal/extract` package provides LLM-based memory extraction via Ollama.
 
 ```go
 import "github.com/MichielDean/LLMem/internal/extract"
@@ -1290,8 +1253,6 @@ import "github.com/MichielDean/LLMem/internal/paths"
 home := paths.GetHomeDir()          // ~/.config/llmem/ (or LMEM_HOME)
 dbPath := paths.GetDBPath()         // ~/.config/llmem/memory.db
 cfgPath := paths.GetConfigPath()    // ~/.config/llmem/config.yaml
-diaryPath := paths.GetDreamDiaryPath()     // ~/.config/llmem/dream-diary.md
-reportPath := paths.GetDreamReportPath()   // ~/.config/llmem/dream-report.html
 skillDir := paths.GetSkillDir()    // ~/.config/llmem/skills/
 ctxDir := paths.GetContextDir()      // ~/.config/llmem/context/
 
@@ -1304,26 +1265,6 @@ blocked := paths.IsBlockedPath("/etc/passwd")  // true — system directories bl
 // Migration
 migrated, err := paths.MigrateFromLobsterdog()  // copies ~/.lobsterdog/ to ~/.config/llmem/
 ```
-
-### Systemd Unit Generation (internal/systemd)
-
-The `internal/systemd` package generates systemd service and timer unit files for the dream cycle.
-
-```go
-import "github.com/MichielDean/LLMem/internal/systemd"
-
-// Generate service unit
-serviceContent, err := systemd.GenerateServiceUnit("*-*-* 03:00:00")
-
-// Generate timer unit (validates schedule for shell metacharacters)
-timerContent, err := systemd.GenerateTimerUnit("*-*-* 03:00:00")
-
-// Validate a systemd schedule expression
-valid := systemd.ValidateSchedule("*-*-* 03:00:00")  // true
-valid := systemd.ValidateSchedule("$(evil)")            // false — rejects shell metacharacters
-```
-
-Templates are embedded via `embed.FS`. `GenerateTimerUnit` calls `ValidateSchedule` before template interpolation to prevent injection.
 
 ### Taxonomy (internal/taxonomy)
 

@@ -210,21 +210,6 @@ ls ~/.copilot/installed-plugins/_direct/llmem/.claude-plugin/plugin.json
 ls .opencode/tools/llmem-*.ts
 ```
 
-### Step 7: Dream Timer (Optional)
-
-For automatic memory consolidation:
-
-```bash
-# Copy and enable systemd timer
-cp harness/llmem-dream.service ~/.config/systemd/user/
-cp harness/llmem-dream.timer ~/.config/systemd/user/
-systemctl --user daemon-reload
-systemctl --user enable llmem-dream.timer
-systemctl --user start llmem-dream.timer
-```
-
-Runs nightly at 3am by default. Configure in `~/.config/llmem/config.yaml` under `dream:`.
-
 ## Architecture
 
 ```

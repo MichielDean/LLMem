@@ -86,7 +86,7 @@ Two skills ship with LLMem and are installed to `~/.agents/skills/`:
 
 | Skill | Description |
 |-------|-------------|
-| **llmem** | Full CLI reference, memory types, commands, dream config |
+| **llmem** | Full CLI reference, memory types, commands, config reference |
 | **llmem-setup** | Install, configure, and integrate LLMem into a harness |
 
 ### Optional: AGENTS.md Pointer

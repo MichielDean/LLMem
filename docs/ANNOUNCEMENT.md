@@ -2,7 +2,7 @@
 
 We're excited to announce LLMem, an open-source SQLite-backed memory store designed for LLM agents. LLMem gives your agents persistent, searchable memory that goes far beyond simple key-value storage — combining full-text search (FTS5), optional vector similarity search, an extensible type system, and a provider abstraction layer for LLM embeddings and text generation.
 
-LLMem ships with a background dreaming cycle that automatically consolidates, decays, and merges memories over time — keeping your agent's knowledge base clean and relevant without manual curation. The provider abstraction supports Ollama, OpenAI, Anthropic, and local sentence-transformers models, with graceful fallback so your agent always works even when individual providers are unavailable. A working memory inbox with attention scoring lets agents stage ephemeral observations before promoting them to long-term storage.
+The provider abstraction supports Ollama, OpenAI, Anthropic, and local sentence-transformers models, with graceful fallback so your agent always works even when individual providers are unavailable. A working memory inbox with attention scoring lets agents stage ephemeral observations before promoting them to long-term storage.
 
 Getting started is simple — clone and build:
 
