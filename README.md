@@ -233,6 +233,11 @@ llmem inbox
 llmem consolidate --dry-run
 llmem consolidate --min-score 0.5
 
+# Extract memories from text or a file
+llmem extract --file notes.txt
+llmem extract --text "Project uses pytest for testing"
+llmem extract --text "Project uses pytest for testing" --dry-run   # Print extracted memories without storing anything
+
 # Check embedding quality
 llmem embed
 llmem consolidate --metrics

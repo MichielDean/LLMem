@@ -44,6 +44,7 @@ func main() {
 		deleteCmd(),
 		exportCmd(),
 		importCmd(),
+		extractCmd(nil),
 		initCmd(),
 		metricsCmd(),
 
