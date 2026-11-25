@@ -119,6 +119,16 @@ Pinned stable memories are exempt from TTL pruning, so they stay visible in brie
 
 Use `llmem amend --pin ID` / `--unpin ID` to manage pins as part of the session-end cycle.
 
+### `llmem extract`
+
+```bash
+llmem extract (--text TEXT | --file PATH) [--dry-run]
+```
+
+Extracts candidate memories from free text or a file using the configured LLM and stores them in the memory database.
+
+- `--dry-run`: Extract and print candidate memories without storing anything.
+
 ### `llmem delete`
 
 ```bash

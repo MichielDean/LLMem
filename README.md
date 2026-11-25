@@ -230,6 +230,11 @@ llmem unpin <memory-id>
 # Pin a stable memory (exempt from TTL pruning)
 llmem pin <memory-id>
 
+# Extract memories from text or a file
+llmem extract --file notes.txt
+llmem extract --text "Project uses pytest for testing"
+llmem extract --text "Project uses pytest for testing" --dry-run   # Print extracted memories without storing anything
+
 # Delete a memory
 llmem delete <memory-id>
 
