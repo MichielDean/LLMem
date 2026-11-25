@@ -4,7 +4,7 @@ description: >
   Manage LLMem — structured memory system with SQLite-backed factual memory,
   semantic search, and TTL + pinning retention.
   Use when the user wants to: (1) add, search, update, or delete memories,
-  (2) generate context for injection, (3) check memory stats. Triggers on:
+  (2) generate a session briefing, (3) pin/unpin stable memories. Triggers on:
   "memory", "remember", "recall", "llmem", "memories", "forget".
 license: MIT
 ---
@@ -79,14 +79,17 @@ llmem update <id> --confidence 0.95
 llmem update <id> --summary "short summary"
 llmem update <id> --metadata '{"key": "value"}'
 
-# Invalidate (soft-delete — marks as expired)
-llmem invalidate <id> --reason "no longer relevant"
+# Lifecycle (TTL + pinning model — no invalidate command)
+llmem pin <id> / llmem unpin <id>    # pin stable memories (exempt from TTL pruning)
+llmem delete <id>                    # hard removal
+llmem amend --volatile "..."         # at session end: update volatile state, prune expired
 
 # Delete permanently
 llmem delete <id>
 
-# Stats
-llmem stats
+# Session briefing
+llmem brief
+llmem amend --volatile "current state"   # session-end amend cycle
 
 
 # Export/import
@@ -141,7 +144,7 @@ final_score = rrf_score * (1 - blend) + weighted_signal * blend
 ## Important Notes
 
 - **Go binary** — `llmem` is now a compiled Go binary at `~/.local/bin/llmem`, symlinked from `/usr/local/bin/llmem`. No Python virtualenv needed.
-- **Invalidate, don't delete** unless the memory was wrong. Invalidated memories stay for reference but aren't returned in searches.
+- **TTL handles expiry** — memories auto-expire via their tier TTL. Pin stable memories for long-term. Use `llmem delete` only for hard removal, and `llmem amend` at session end.
 - **Embeddings** require Ollama running with `nomic-embed-text` pulled. If Ollama is down, semantic search falls back to FTS5-only.
 - **ANN vector index** — semantic search uses sqlite-vec (`vec0` virtual table) for fast ANN retrieval, with automatic fallback to brute-force cosine similarity if sqlite-vec is not available.
 - **Confidence** is 0.0-1.0. Higher = more certain. Facts from the user directly should be 0.9+, auto-extracted should be 0.7.

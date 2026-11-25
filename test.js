@@ -29,10 +29,7 @@ const EXPECTED_TEMPLATES = [
 ];
 const EXPECTED_TOOLS = [
   'llmem-search',
-  'llmem-add',
-  'llmem-context',
-  'llmem-invalidate',
-  'llmem-stats'
+  'llmem-add'
 ];
 const FORBIDDEN_PATTERNS = [
   /\blogmem\b/,

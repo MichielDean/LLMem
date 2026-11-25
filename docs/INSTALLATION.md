@@ -108,7 +108,7 @@ pip install ".[vec,local,dev]"
 
 ```bash
 llmem init
-llmem stats
+llmem brief
 ```
 
 ## Go Package
@@ -170,6 +170,6 @@ go test ./...
 | CLI | Full-featured (24 commands) | Core commands (18 commands, including `extract`) |
 | Embeddings/Providers | Ollama, OpenAI, Anthropic, local | Ollama (`/api/generate` and `/api/embeddings`) |
 | Reranking | RRF + multi-signal | FTS5-only (hybrid coming) |
-| Session hooks | Full lifecycle (Python API via session adapters) | Python-only; Go CLI provides manual `llmem extract` |
+| Session hooks | Full lifecycle (Python API via session adapters) | Plugin hooks: `llmem brief` at session start, `llmem amend` at session end |
 
 The Go `MemoryStore` shares the **exact same database schema** as Python. You can use them interchangeably — a database created by Python is readable by Go, and vice versa.

@@ -2,7 +2,7 @@
  * LLMem OpenCode Plugin — session lifecycle hooks for memory injection.
  *
  * This plugin handles two things automatically:
- * 1. session.created — injects memory context and stats into the session
+ * 1. session.created — injects the llmem brief briefing into the session
  * 2. experimental.session.compacting — preserves key memories across compaction
  *
  * All behavioral instructions (when to search, when to add, when to consolidate)

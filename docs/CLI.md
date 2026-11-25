@@ -12,23 +12,25 @@ Options:
   --json       Output results as JSON
 
 Commands:
-  add                 Add a memory
-  get                 Get a memory by ID
-  search              Search memories
-  list                List memories
-  stats               Show memory statistics
-  update              Update a memory
-  invalidate          Invalidate a memory (mark expired/wrong)
+  add                 Add a new memory
+  amend               Session-end cycle: update volatile state, manage pins, prune expired, regenerate briefing
+  backfill-embeddings Generate embeddings for memories that lack them
+  brief               Generate and display the session briefing
+  curate              Nightly maintenance: prune expired, dedup near-duplicate pins, flag conflicts, emit promotion candidates
   delete              Delete a memory
-  export              Export all memories to JSON
-  import              Import memories from a JSON file
-  init                Initialize the llmem memory system
+  export              Export memories as JSON
+  get                 Get a memory by ID
+  import              Import memories from JSON file
+  init                Initialize LLMem configuration and database
+  list                List memories
   metrics             Report embedding quality metrics
-  extract             Extract memories from text using the configured Ollama extraction model
+  migrate-types       One-time migration from 7 legacy types to 3 new tier types
+  pin                 Pin a stable memory (exempt from TTL pruning)
+  search              Search memories
+  unpin               Unpin a stable memory (re-enables TTL pruning)
+  update              Update a memory
 
  ```
-
-**Python-only commands** (not yet in the Go CLI): `register-type`, `types`, `note`, `inbox`, `consolidate`, `embed`, `learn` (codebase indexing), `suggest-categories`.
 
 ### `llmem add`
 
@@ -73,9 +75,27 @@ llmem list [--type TYPE] [--all] [--limit N]
 
 By default, excludes expired memories. Use `--all` to include them. `--limit` defaults to 100.
 
-### `llmem stats`
+### `llmem brief`
 
-Shows total, active, and expired memory counts, plus a breakdown by type. Use `--json` for JSON output.
+Generates and displays the session briefing: pinned memories first, then fresh volatile state. Injected automatically by the platform plugins at session start.
+
+```bash
+llmem brief [--max-lines N]
+```
+
+- `--max-lines`: Maximum lines in the briefing (default: 25).
+
+### `llmem amend`
+
+Session-end cycle. Updates the volatile session-state memory, manages pins, prunes expired memories, and regenerates the briefing.
+
+```bash
+llmem amend [--volatile TEXT] [--pin ID] [--unpin ID] [--prune-only]
+```
+
+- `--volatile`: Update the volatile session-state memory with this content.
+- `--pin` / `--unpin`: Pin or unpin stable memories by ID (repeatable).
+- `--prune-only`: Only run TTL pruning, skip briefing output.
 
 ### `llmem update`
 
@@ -86,13 +106,18 @@ llmem update ID [--content TEXT] [--summary TEXT] [--confidence FLOAT] \
 
 Only fields with `--` flags are updated; omitted fields remain unchanged.
 
-### `llmem invalidate`
+Memories expire automatically via TTL (the `--valid-until` timestamp); there is no separate invalidate command. For memory lifecycle:
+
+### `llmem pin` / `llmem unpin`
 
 ```bash
-llmem invalidate ID [--reason TEXT]
+llmem pin ID
+llmem unpin ID
 ```
 
-Marks a memory as no longer valid, with an optional reason.
+Pinned stable memories are exempt from TTL pruning, so they stay visible in briefings long-term. Unpinning re-enables TTL pruning for that memory.
+
+Use `llmem amend --pin ID` / `--unpin ID` to manage pins as part of the session-end cycle.
 
 ### `llmem delete`
 
@@ -121,29 +146,16 @@ Export produces a JSON array of all memories (default limit: 10,000). Import val
 llmem metrics
 ```
 
-Report the count of embeddings stored in the database. In the Go CLI, this command outputs the number of embedded memories. For full embedding quality metrics (anisotropy, similarity range, discrimination gap), use the Python CLI's `llmem embed` command.
+Report the count of embeddings stored in the database. For full embedding quality metrics (anisotropy, similarity range, discrimination gap), embed representative memories and analyze them programmatically via the `internal/embed/metrics` package.
 
-### `llmem extract`
+### `llmem curate`
+
+Nightly maintenance: prunes expired memories, deduplicates near-duplicate pins, flags conflicts, and emits pin promotion candidates.
 
 ```bash
-llmem extract (--text TEXT | --file PATH) [--dry-run]
+llmem curate [--prune] [--auto-pin-rounds N]
 ```
 
-Extract candidate memories from text using the configured Ollama extraction model (`memory.extract_model` in `config.yaml`, with `memory.ollama_url` as the Ollama base URL) and store them.
-
-Flags:
-
-- `--text TEXT`: Text to extract memories from.
-- `--file PATH`: Read the text from a file instead (mutually exclusive with `--text`). Paths in protected system directories (e.g. `/etc`, `/bin`, `/usr/bin`) are blocked, and files larger than 10 MiB are rejected.
-- `--dry-run`: Extract and print candidate memories without storing anything.
-
-Behavior:
-
-- Exactly one of `--text` or `--file` is required; passing both (or neither) is an error.
-- Before running, the command checks (with a 5-second timeout) whether the extraction model is available on the configured Ollama server. If it is unavailable, a warning is logged and the command exits without storing anything.
-- Each extracted item is stored with `source: extract`. Items missing a `type` or `content` are skipped, and types not registered via `RegisterMemoryType` (Python CLI `register-type`) are skipped and logged.
-- When `memory.embed_model` is configured, stored memories also receive embeddings; if embedding fails, the memory is stored without one.
-- Output uses the same format as `llmem list` (human-readable, or JSON with the global `--json` flag).
-
-> **Python-only commands:** The Python CLI includes additional commands not yet in the Go CLI: `register-type`, `types`, `note`, `inbox`, `consolidate`, `embed` (full embedding quality metrics), `learn` (codebase indexing), and `suggest-categories`.
+- `--prune`: Prune expired memories as part of curation (default: true).
+- `--auto-pin-rounds`: Number of curate runs a pin must survive before becoming a promotion candidate (default: 3).
 

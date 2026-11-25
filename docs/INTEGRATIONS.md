@@ -10,7 +10,7 @@ LLMem uses a **plugin-first architecture**. The plugin handles automatic memory 
 Agent Session
     │
     ├── Plugin (auto, no instructions needed)
-    │   ├── session.created/start → llmem stats + llmem search → inject context
+    │   ├── session.created/start → llmem brief → inject briefing
     │   └── session.compacting    → llmem search → preserve memories
     │
     ├── Skills (on-demand, loaded by trigger)
@@ -19,10 +19,7 @@ Agent Session
     │
     └── Custom Tools (structural, zero-instruction)
         ├── llmem-search   → Search memories
-        ├── llmem-add      → Add a memory
-        ├── llmem-context  → Get context for a topic
-        ├── llmem-invalidate → Soft-delete a memory
-        └── llmem-stats    → Show memory statistics
+        └── llmem-add      → Add a memory
 ```
 
 ### Why Plugin-First?
@@ -55,7 +52,7 @@ The OpenCode plugin (`plugins/opencode/llmem.js`) handles:
 
 | Event | Action |
 |-------|--------|
-| `session.created` | Runs `llmem stats` + `llmem search` — injects results as log context |
+| `session.created` | Runs `llmem brief` — injects the session briefing as context |
 | `experimental.session.compacting` | Runs `llmem search` — preserves key memories |
 
 The plugin is deployed to `~/.config/opencode/plugins/llmem.js` by the install script. No manual configuration needed — OpenCode auto-discovers plugins in this directory.
@@ -70,15 +67,12 @@ To explicitly add it to your `opencode.json`:
 
 ### Custom Tools
 
-The `.opencode/tools/` directory contains five type-safe tools that the agent can invoke directly without loading a skill:
+The `.opencode/tools/` directory contains two type-safe tools that the agent can invoke directly without loading a skill:
 
 | Tool | CLI Equivalent | Description |
 |------|----------------|-------------|
 | `llmem-search` | `llmem search <query> --json` | Search memories; returns JSON array |
 | `llmem-add` | `llmem add --type T --content C` | Add a memory; returns ID and type |
-| `llmem-context` | `llmem search <query> --limit 20` | Retrieve formatted context for a topic |
-| `llmem-invalidate` | `llmem invalidate <ID>` | Invalidate a memory by ID |
-| `llmem-stats` | `llmem stats` | Show memory statistics |
 
 ### Skills
 
@@ -146,7 +140,7 @@ The `hooks.json` declares:
 
 | Event | Action |
 |-------|--------|
-| `SessionStart` | Runs `llmem stats` + `llmem search` — stdout injected as context |
+| `SessionStart` | Runs `llmem brief` — briefing stdout injected as context |
 | `PreCompact` | Runs `llmem search` — preserves key memories |
 
 The `SessionStart` hook's **stdout is added as context that Claude can see and act on** — this is the key mechanism for zero-config integration.

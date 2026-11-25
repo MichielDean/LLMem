@@ -1,5 +1,5 @@
 {
-  "description": "LLMem memory system — injects context at session start and preserves key memories during compaction.",
+  "description": "LLMem memory system — injects the llmem brief briefing at session start and preserves key memories during compaction.",
   "hooks": {
     "SessionStart": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "llmem stats 2>/dev/null && echo '---' && llmem search 'recent decisions important facts preferences' --limit 5 2>/dev/null",
+            "command": "llmem brief 2>/dev/null",
             "timeout": 30
           }
         ]

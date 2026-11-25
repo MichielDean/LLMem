@@ -120,9 +120,10 @@ Add memory instructions to the agent's AGENTS.md. Insert these sections:
 
 Memory is working memory, not a startup ritual. Search before assuming.
 
-**Session start — MANDATORY:**
-1. `llmem stats` — check memory health
-2. `llmem search "topic" --limit 5` — search for relevant memories
+**Session start:**
+The plugin injects the `llmem brief` briefing automatically. Optionally search for a specific topic:
+
+1. `llmem search "topic" --limit 5` — search for relevant memories
 
 **Mid-session search triggers — search whenever:**
 - Looking up how something works
@@ -137,8 +138,10 @@ Memory is working memory, not a startup ritual. Search before assuming.
 - `llmem add --type preference --content "prefer dark theme" --confidence 0.9` — user preferences
 - `llmem add --type procedure --content "how to deploy: step 1, step 2..."` — how-to knowledge
 
-**Invalidate, don't delete:**
-- `llmem invalidate <id> --reason "no longer relevant"` — soft-delete, stays for reference
+**Lifecycle:**
+- `llmem pin <id>` / `llmem unpin <id>` — pin stable memories (exempt from TTL pruning)
+- `llmem delete <id>` — hard removal
+- `llmem amend --volatile "..."` at session end — keeps volatile state fresh and prunes expired memories
 ```
 
 #### New Harness (no AGENTS.md)
@@ -165,7 +168,7 @@ OpenCode agents need the `opencode-llmem` plugin (installed in Step 1) and the l
 ```
 
 The plugin handles session hooks automatically:
-- `session.created` → `llmem stats` + `llmem search` (injects relevant memories)
+- `session.created` → `llmem brief` (injects the briefing)
 - `session.compacting` → `llmem search` (preserves key memories)
 
 Skills are installed to `~/.agents/skills/`. OpenCode discovers them automatically.
@@ -179,7 +182,7 @@ Run these checks to confirm everything works:
 llmem --help
 
 # Database is initialized
-llmem stats
+llmem brief
 
 # Can add and search
 llmem add --type fact --content "test memory"
@@ -196,7 +199,7 @@ ls ~/.agents/skills/llmem-setup/SKILL.md
 ls ~/.agents/plugins/llmem/
 
 # Session hooks work
-llmem stats && llmem search "test" --limit 5
+llmem brief && llmem search "test" --limit 5
 ```
 
 ## Troubleshooting

@@ -125,8 +125,9 @@ See [docs/INSTALLATION.md](docs/INSTALLATION.md) for Go build dependencies and [
 
 LLMem uses platform plugins to inject memory context automatically. **No manual instruction editing required.** The plugin handles:
 
-- **Session start**: Injects memory stats and search results as context
+- **Session start**: Injects the `llmem brief` session briefing as context
 - **Compaction**: Preserves key memories across context compaction
+- **Session end**: The agent runs `llmem amend` to update volatile state, manage pins, and regenerate the briefing
 
 | Platform | Plugin source | Install path | How to install |
 |----------|---------------|-------------|---------------|
@@ -179,8 +180,8 @@ llmem --help
 # Initialize config and database
 llmem init
 
-# Confirm the store is working
-llmem stats
+# Confirm the briefing command works
+llmem brief
 
 # Verify skills are deployed
 ls ~/.agents/skills/llmem
@@ -219,28 +220,18 @@ llmem list --type decision --all
 # Get a specific memory
 llmem get <memory-id>
 
-# Show statistics
-llmem stats
+# Show the session briefing
+llmem brief
 
-# Register a custom memory type
-llmem register-type my_custom_type
-llmem types
+# Update session state at session end
+llmem amend --volatile "current state" --pin <memory-id>
+llmem unpin <memory-id>
 
-# Working memory inbox
-llmem note "Important observation from today's session"
-llmem note "Tentative insight" --attention-score 0.3
-llmem inbox
-llmem consolidate --dry-run
-llmem consolidate --min-score 0.5
+# Pin a stable memory (exempt from TTL pruning)
+llmem pin <memory-id>
 
-# Extract memories from text or a file
-llmem extract --file notes.txt
-llmem extract --text "Project uses pytest for testing"
-llmem extract --text "Project uses pytest for testing" --dry-run   # Print extracted memories without storing anything
-
-# Check embedding quality
-llmem embed
-llmem consolidate --metrics
+# Delete a memory
+llmem delete <memory-id>
 
 # Export and import
 llmem export --output backup.json

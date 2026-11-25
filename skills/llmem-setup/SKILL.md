@@ -43,7 +43,7 @@ curl -sSL https://raw.githubusercontent.com/MichielDean/LLMem/main/setup.sh | ba
 Verify:
 ```bash
 llmem --help
-llmem stats
+llmem brief
 ```
 
 ### Step 2: Initialize
@@ -152,7 +152,7 @@ claude --plugin-dir ~/.claude/plugins/llmem
 ```
 
 The plugin provides:
-- **`SessionStart` hook**: Injects `llmem stats` and `llmem search` at session start
+- **`SessionStart` hook**: Injects the `llmem brief` briefing at session start
 - **`PreCompact` hook**: Injects key memories before compaction
 - **Skills**: `llmem`, `llmem-setup` — loaded on-demand
 
@@ -189,7 +189,7 @@ Plugin-managed. Search when uncertain: `llmem search "topic"`. Add when you lear
 ```bash
 # CLI works
 llmem --help
-llmem stats
+llmem brief
 
 # Can add and search
 llmem add --type fact --content "test memory"
@@ -216,7 +216,7 @@ ls .opencode/tools/llmem-*.ts
 Agent Session
     │
     ├── Plugin (auto, no instructions needed)
-    │   ├── session.created/start → llmem stats + llmem search → inject context
+    │   ├── session.created/start → llmem brief → inject briefing
     │   └── session.compacting    → llmem search → preserve key memories
     │
     ├── Skills (on-demand, loaded by trigger)
@@ -225,10 +225,7 @@ Agent Session
     │
     └── Custom Tools (structural, zero-instruction)
         ├── llmem-search   → Search memories
-        ├── llmem-add      → Add a memory
-        ├── llmem-context  → Get context for a topic
-        ├── llmem-invalidate → Soft-delete a memory
-        └── llmem-stats    → Show memory statistics
+        └── llmem-add      → Add a memory
 ```
 
 The plugin handles everything the agent physically cannot do itself (inject context before the first message, preserve key memories during compaction). The skills provide behavioral guidance when the agent needs it. Custom tools provide typed access to memory operations without requiring skill loading.
@@ -243,4 +240,4 @@ The plugin handles everything the agent physically cannot do itself (inject cont
 
 **Skills not discovered** — Verify skill directories: `ls ~/.agents/skills/llmem/`. If missing, re-run `node install.js`.
 
-**Context not injected at session start** — Check the plugin log. For OpenCode, run `llmem stats` manually to verify the command works. The plugin runs these same commands.
+**Context not injected at session start** — Check the plugin log. For OpenCode, run `llmem brief` manually to verify the command works. The plugin runs the same command.
